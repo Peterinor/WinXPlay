@@ -1,0 +1,11 @@
+/build/
+/.local/
+__pycache__/
+*.py[cod]
+*.obj
+*.lib
+*.pdb
+*.log
+identity/
+phone-pair*.plist
+local-settings.ps1

@@ -1,0 +1,19 @@
+{
+  "scenario": "system_info",
+  "title": "采集系统信息与存储容量",
+  "main": {
+    "tool": "system-information",
+    "sources": [
+      "main.cpp",
+      "../../common/diagnostic_support.cpp"
+    ],
+    "entry": "SystemInformationEntry",
+    "executable": "system_info.exe",
+    "description": "一次采集启动记录、系统、进程和存储容量信息",
+    "category": "basic",
+    "dependencies": [],
+    "options": true,
+    "delay_ms": 0
+  },
+  "companions": []
+}

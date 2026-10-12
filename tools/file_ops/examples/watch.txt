@@ -1,0 +1,3 @@
+MRN_FILEOPS_V2
+# Save new snapshots for approximately three minutes.
+WATCH|\NAND_USER\WinXPlay\B_INTERACTION.log|B_INTERACTION.log

@@ -1,0 +1,2 @@
+MRN_FILEOPS_V2
+RUN|\NAND_USER\WinXPlay\WinXPlay.exe

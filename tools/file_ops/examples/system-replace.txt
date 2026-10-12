@@ -1,0 +1,4 @@
+MRN_FILEOPS_V2
+# Replace these placeholder names with the actual prepared update and destination.
+# Writable files only; a running module may require a separate stop/reload step.
+INSTALL|\Hard Disk\AutoLaunch\payload\replacement.dll|\Windows\replacement.dll

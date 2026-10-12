@@ -1,0 +1,3 @@
+FILEOPS_V2
+# Export one file; does not modify the source.
+COPY|\Windows\cmd.exe|cmd.exe

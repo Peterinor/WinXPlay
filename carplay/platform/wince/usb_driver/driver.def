@@ -1,0 +1,16 @@
+LIBRARY WinXPlayUsbMux
+EXPORTS
+ USBDeviceAttach
+ USBInstallDriver
+ USBUnInstallDriver
+ USBGetRegistrationStatus
+ CMX_Init
+ CMX_Deinit
+ CMX_Open
+ CMX_Close
+ CMX_Read
+ CMX_Write
+ CMX_Seek
+ CMX_IOControl
+ CMX_PowerDown
+ CMX_PowerUp

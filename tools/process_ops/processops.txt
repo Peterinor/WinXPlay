@@ -1,0 +1,3 @@
+PROCESSOPS_V1
+# KILL|seconds from tool entry|exact exe basename|retry window seconds|retry interval seconds
+# KILL|10|example.exe|20|1

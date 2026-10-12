@@ -1,0 +1,5 @@
+# Python >= 3.10. Development tools only; not linked into the receiver.
+cryptography==50.0.2
+pefile==2024.8.26
+unicorn==2.1.4
+Pillow==12.3.0

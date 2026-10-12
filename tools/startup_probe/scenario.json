@@ -1,0 +1,18 @@
+{
+  "scenario": "startup_probe",
+  "title": "确认 U 盘上的程序能否启动",
+  "main": {
+    "tool": "usb-startup-check",
+    "sources": [
+      "main.cpp",
+      "../../common/diagnostic_support.cpp"
+    ],
+    "entry": "UsbStartupCheckEntry",
+    "executable": "startup_probe.exe",
+    "description": "无弹窗记录 USB 程序入口并退出",
+    "category": "basic",
+    "dependencies": [],
+    "options": false
+  },
+  "companions": []
+}

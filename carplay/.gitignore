@@ -1,0 +1,9 @@
+out/
+dist/
+__pycache__/
+*.py[cod]
+*.log
+*.zip
+identity/
+phone-pair*
+local-settings.ps1

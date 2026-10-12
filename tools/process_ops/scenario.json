@@ -1,0 +1,20 @@
+{
+  "scenario": "process_ops",
+  "title": "按配置时间独立调度进程终止任务",
+  "main": {
+    "tool": "hmi-termination-experiment",
+    "sources": [
+      "main.cpp"
+    ],
+    "entry": "ProcessOpsEntry",
+    "executable": "process_ops.exe",
+    "description": "读取 processops.txt，按时间和名称独立核验并结束进程，单项失败不阻断其他任务，无窗口、不操作音频、不自动重启",
+    "category": "experiment",
+    "dependencies": [],
+    "config_files": [
+      "processops.txt"
+    ],
+    "instructions_file": "README.md"
+  },
+  "companions": []
+}

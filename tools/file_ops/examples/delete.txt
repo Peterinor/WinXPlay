@@ -1,0 +1,4 @@
+MRN_FILEOPS_V2
+# Replace this example path with the exact file to remove.
+# A verified backup is retained in this run's FILEOPS directory.
+DELETE|\NAND_USER\MRN_TEST\old.log

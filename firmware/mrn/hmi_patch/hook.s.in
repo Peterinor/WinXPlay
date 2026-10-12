@@ -1,0 +1,189 @@
+        AREA |.text|, CODE, READONLY
+        EXPORT HookStart
+        EXPORT Worker
+        EXPORT TrampolineBranch
+        EXPORT WindowHook
+        EXPORT WindowBranch
+HookStart
+        stmdb sp!, {r0-r12,lr}
+        mrs r12, CPSR
+        sub sp, sp, #8
+        str r12, [sp]
+        mov r4, r0
+        mov r5, r1
+        mov r12, #0
+        str r12, [sp, #4]
+        cmp r4, #3
+        bne CallOriginal
+        cmp r5, #0
+        bne CallOriginal
+        adr r8, HookStart
+        ldr r9, CodeRva
+        sub r8, r8, r9
+        ldr r9, StateRva
+        add r9, r8, r9
+        mov r0, #0
+        str r0, [sp, #8]
+        ldr r0, [r9, #28]
+        cmp r0, #0
+        beq CheckWorker
+        mov r0, r4
+        mov r1, r5
+        ldr r2, [sp, #16]
+        ldr r3, [sp, #20]
+        bl OriginalTrampoline
+        str r0, [sp, #8]
+        mov r0, #1
+        str r0, [sp, #4]
+CheckWorker
+        ldr r0, [r9]
+        cmp r0, #0
+        bne Finished
+        ldr r12, TickIatRva
+        add r12, r8, r12
+        ldr r12, [r12]
+        blx r12
+        ldr r1, [r9, #8]
+        cmp r1, #0
+        beq Launch
+        ldr r1, [r9, #4]
+        sub r1, r0, r1
+        cmp r1, #500
+        blo Finished
+Launch
+        str r0, [r9, #4]
+        mov r0, #1
+        str r0, [r9]
+        str r0, [r9, #8]
+        sub sp, sp, #8
+        mov r0, #0
+        str r0, [sp]
+        str r0, [sp, #4]
+        mov r1, #0
+        adr r2, Worker
+        mov r3, #0
+        ldr r12, ThreadIatRva
+        add r12, r8, r12
+        ldr r12, [r12]
+        blx r12
+        add sp, sp, #8
+        cmp r0, #0
+        moveq r1, #0
+        streq r1, [r9]
+        beq CallOriginal
+        ldr r12, CloseIatRva
+        add r12, r8, r12
+        ldr r12, [r12]
+        blx r12
+        b Finished
+CallOriginal
+        ldr r0, [sp, #4]
+        cmp r0, #0
+        bne Finished
+        mov r0, r4
+        mov r1, r5
+        ldr r2, [sp, #16]
+        ldr r3, [sp, #20]
+        bl OriginalTrampoline
+        str r0, [sp, #8]
+Finished
+        ldr r12, [sp]
+        msr CPSR_f, r12
+        add sp, sp, #8
+        ldmia sp!, {r0-r12,lr}
+        bx lr
+OriginalTrampoline
+        stmdb sp!, {r4-r11,lr}
+TrampolineBranch
+        DCD 0xEA000000
+
+Worker
+        stmdb sp!, {r4-r8,lr}
+        adr r8, HookStart
+        ldr r4, CodeRva
+        sub r8, r8, r4
+        ldr r6, StateRva
+        add r6, r8, r6
+        ldr r5, [r6, #20]
+        cmp r5, #0
+        bne Resolve
+        ldr r0, PathRva
+        add r0, r8, r0
+        ldr r12, LoadIatRva
+        add r12, r8, r12
+        ldr r12, [r12]
+        blx r12
+        movs r5, r0
+        str r5, [r6, #20]
+        beq WorkerDone
+Resolve
+        ldr r4, [r6, #24]
+        cmp r4, #0
+        bne StartBridge
+        mov r0, r5
+        ldr r1, ExportRva
+        add r1, r8, r1
+        ldr r12, ProcIatRva
+        add r12, r8, r12
+        ldr r12, [r12]
+        blx r12
+        movs r4, r0
+        str r4, [r6, #24]
+        beq WorkerDone
+StartBridge
+        blx r4
+        str r0, [r6, #16]
+WorkerDone
+        ldr r0, [r6, #16]
+        cmp r0, #0
+        moveq r0, #1
+        movne r0, #0
+        str r0, [r6, #28]
+        mov r0, #0
+        str r0, [r6]
+        ldmia sp!, {r4-r8,pc}
+
+WindowHook
+        ; Preserve all integer registers/flags; execute the displaced mov ip,sp
+        ; with the ORIGINAL stack pointer before resuming the original prologue.
+        stmdb sp!, {r0-r12,lr}
+        mrs r12, CPSR
+        sub sp, sp, #8
+        str r12, [sp]
+        adr r4, HookStart
+        ldr r5, CodeRva
+        sub r4, r4, r5
+        ldr r5, StateRva
+        add r4, r4, r5
+        ldr r12, [r4, #16]
+        cmp r12, #0
+        beq WindowContinue
+        blx r12
+        cmp r0, #0
+        bne WindowConsumed
+WindowContinue
+        ldr r12, [sp]
+        msr CPSR_f, r12
+        add sp, sp, #8
+        ldmia sp!, {r0-r12,lr}
+        mov ip, sp
+WindowBranch
+        DCD 0xEA000000
+WindowConsumed
+        ldr r12, [sp]
+        msr CPSR_f, r12
+        add sp, sp, #8
+        ldmia sp!, {r0-r12,lr}
+        mov r0, #0
+        bx lr
+
+CodeRva         DCD @CODE_RVA@
+StateRva        DCD @STATE_RVA@
+PathRva         DCD @PATH_RVA@
+ExportRva       DCD @EXPORT_RVA@
+LoadIatRva      DCD @LOAD_IAT_RVA@
+ProcIatRva      DCD @PROC_IAT_RVA@
+TickIatRva      DCD 0x20c6088
+ThreadIatRva    DCD 0x20c6138
+CloseIatRva     DCD 0x20c6084
+        END

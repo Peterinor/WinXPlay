@@ -1,0 +1,5 @@
+MRN_FILEOPS_V2
+# Prepare replacement.dll on USB. The backup destination must not exist.
+# Line 2 executes only after line 1 succeeds.
+MOVE|\Windows\application.dll|\Hard Disk\AutoLaunch\payload\application.dll.bak
+COPY|\Hard Disk\AutoLaunch\payload\replacement.dll|\Windows\application.dll

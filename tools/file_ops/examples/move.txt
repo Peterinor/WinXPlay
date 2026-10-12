@@ -1,0 +1,3 @@
+MRN_FILEOPS_V2
+# Supply input.bin on USB first. Destination must not exist.
+MOVE|\Hard Disk\AutoLaunch\payload\input.bin|\NAND_USER\MRN_TEST\input.bin

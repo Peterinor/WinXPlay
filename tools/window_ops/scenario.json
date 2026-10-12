@@ -1,0 +1,34 @@
+{
+  "scenario": "window_ops",
+  "title": "按窗口名称临时隐藏并恢复",
+  "main": {
+    "tool": "window-operations",
+    "sources": [
+      "main.cpp"
+    ],
+    "entry": "WindowOpsEntry",
+    "executable": "window_ops.exe",
+    "description": "读取 window_ops.ini，精确定位唯一的可见前台窗口，临时隐藏后由独立助手恢复",
+    "category": "experiment",
+    "dependencies": [
+      "window-restore-helper"
+    ],
+    "instructions_file": "README.md",
+    "config_files": [
+      "window_ops.ini"
+    ]
+  },
+  "companions": [
+    {
+      "tool": "window-restore-helper",
+      "sources": [
+        "restore.cpp"
+      ],
+      "entry": "WindowRestoreEntry",
+      "executable": "window_restore.exe",
+      "description": "窗口操作的独立恢复助手",
+      "category": "helper",
+      "dependencies": []
+    }
+  ]
+}

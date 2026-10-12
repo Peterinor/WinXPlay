@@ -1,0 +1,3 @@
+MRN_FILEOPS_V2
+# Supply application.exe on USB first. Preserve any previous file as backup.
+INSTALL|\Hard Disk\AutoLaunch\payload\application.exe|\NAND_USER\MRN_TEST\application.exe
