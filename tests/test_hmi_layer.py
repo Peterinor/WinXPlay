@@ -2,7 +2,7 @@
 No physical overlay is emulated. The observer test supplies listener state.
 """
 import struct,unittest
-from test_ab_interaction import Machine,common,OUT,SOURCE,BASE,MEM,pefile
+from test_ab_interaction import Machine,common,OUT,REPORT_OUT,NO_LOGS,artifact_path,SOURCE,BASE,MEM,pefile
 
 class LayerTests(unittest.TestCase):
     def machine(self,slide=0):
@@ -144,9 +144,9 @@ class LayerTests(unittest.TestCase):
 if __name__=='__main__':
     import hashlib,json,sys
     result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(LayerTests))
-    (OUT/'layer-verification.json').write_text(json.dumps({
-        'passed':result.wasSuccessful(),'tests_run':result.testsRun,
-        'bridge_sha256':hashlib.sha256((OUT/'WinXPlayBridge.dll').read_bytes()).hexdigest(),
+    (REPORT_OUT/'layer-verification.json').write_text(json.dumps({
+        'passed':result.wasSuccessful(),'tests_run':result.testsRun,'logs_enabled':not NO_LOGS,
+        'bridge_sha256':hashlib.sha256(artifact_path(OUT/'WinXPlayBridge.dll').read_bytes()).hexdigest(),
         'original_hmi_sha256':hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
         'physical_display_verified':False,
         'scope':'Original ARM setter/commit; OS calls and listener completion state use doubles.'

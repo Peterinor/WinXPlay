@@ -47,7 +47,7 @@ static LONG delValue(HKEY key,LPCWSTR name){check(key==(HKEY)2 && !wcscmp(name,L
 #define RegCloseKey close
 #define RegDeleteKeyW delKey
 #define RegDeleteValueW delValue
-#include "../../devices/mrn/usb_configuration.h"
+#include "../../platform/wince/usb_configuration.h"
 static cp::AppleNcmBinding run(int mode,bool key=false,const wchar_t *prior=0){
     failure=mode;writes=creates=deletes=0;exists=key;hasValue=prior!=0;value=prior?prior:L"";
     cp::AppleNcmBinding result;cp::prepareAppleNcmBinding(result);return result;

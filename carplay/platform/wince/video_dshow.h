@@ -3,9 +3,9 @@
 #include "../common/native_services.h"
 #include "../../interfaces/media.h"
 namespace cp {
-VideoPipeline *createCeSystemVideo(HWND owner, unsigned width, unsigned height);
+VideoPipeline *createCeSystemVideo(HWND owner, unsigned width, unsigned height, unsigned maxFPS);
 #ifdef CARPLAY_DSHOW_TEST
-VideoPipeline *createCeRgbTestVideo(HWND owner, unsigned width, unsigned height);
+VideoPipeline *createCeRgbTestVideo(HWND owner, unsigned width, unsigned height, unsigned maxFPS);
 #endif
 }
 #endif

@@ -25,10 +25,10 @@ struct Packet { Packet *next; unsigned size; LONGLONG queued; unsigned char data
 struct State {
     HWND window; HANDLE thread, event, initialized; CRITICAL_SECTION lock;
     Packet *head, *tail; bool ending; CpMfFrame callback; void *context;
-    CpMfStats stats; unsigned width, height;
-    State(HWND w, unsigned x, unsigned y, CpMfFrame f, void *c)
+    CpMfStats stats; unsigned width, height, maxFPS;
+    State(HWND w, unsigned x, unsigned y, unsigned fps, CpMfFrame f, void *c)
         : window(w), thread(0), event(0), initialized(0), head(0), tail(0), ending(false),
-          callback(f), context(c), width(x), height(y) { ZeroMemory(&stats, sizeof(stats)); InitializeCriticalSection(&lock); }
+          callback(f), context(c), width(x), height(y), maxFPS(fps) { ZeroMemory(&stats, sizeof(stats)); stats.maxFPS=fps; InitializeCriticalSection(&lock); }
     ~State() {
         while(head) { Packet *p=head; head=p->next; HeapFree(GetProcessHeap(),0,p); }
         if(thread) CloseHandle(thread); if(event) CloseHandle(event); if(initialized) CloseHandle(initialized);
@@ -84,7 +84,7 @@ struct Decoder {
         Ptr<IMFMediaType> input; TRY(MFCreateMediaType(input.out()));
         TRY(input->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Video)); TRY(input->SetGUID(MF_MT_SUBTYPE,MFVideoFormat_H264));
         TRY(MFSetAttributeSize(input.p,MF_MT_FRAME_SIZE,imageW,imageH));
-        TRY(MFSetAttributeRatio(input.p,MF_MT_FRAME_RATE,30,1));
+        TRY(MFSetAttributeRatio(input.p,MF_MT_FRAME_RATE,s.maxFPS,1));
         TRY(input->SetUINT32(MF_MT_INTERLACE_MODE,MFVideoInterlace_Progressive));
         TRY(decoder->SetInputType(0,input.p,0)); TRY(outputType());
         TRY(decoder->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING,0));
@@ -124,7 +124,7 @@ struct Decoder {
         }
         if(!processor.p) {
             D3D11_VIDEO_PROCESSOR_CONTENT_DESC desc={}; desc.InputFrameFormat=D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
-            desc.InputFrameRate.Numerator=30; desc.InputFrameRate.Denominator=1; desc.OutputFrameRate=desc.InputFrameRate;
+            desc.InputFrameRate.Numerator=s.maxFPS; desc.InputFrameRate.Denominator=1; desc.OutputFrameRate=desc.InputFrameRate;
             desc.InputWidth=imageW; desc.InputHeight=imageH; desc.OutputWidth=windowW; desc.OutputHeight=windowH;
             desc.Usage=D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
             TRY(videoDevice->CreateVideoProcessorEnumerator(&desc,enumerator.out()));
@@ -202,7 +202,8 @@ struct Decoder {
         TRY(MFCreateMemoryBuffer(packet.size,buffer.out())); BYTE *data=0; TRY(buffer->Lock(&data,0,0));
         CopyMemory(data,packet.data,packet.size); buffer->Unlock(); TRY(buffer->SetCurrentLength(packet.size));
         TRY(MFCreateSample(sample.out())); TRY(sample->AddBuffer(buffer.p));
-        TRY(sample->SetSampleTime(sequence++*333333)); TRY(sample->SetSampleDuration(333333));
+        const LONGLONG duration=10000000/s.maxFPS;
+        TRY(sample->SetSampleTime(sequence++*duration)); TRY(sample->SetSampleDuration(duration));
         HRESULT hr=decoder->ProcessInput(0,sample.p,0);
         if(hr==MF_E_NOTACCEPTING) { TRY(drain(packet.queued)); hr=decoder->ProcessInput(0,sample.p,0); }
         if(FAILED(hr)) return hr; return drain(packet.queued);
@@ -251,10 +252,11 @@ DWORD WINAPI worker(void *arg) {
     return 0;
 }
 }
-extern "C" HRESULT cpMfCreate(HWND window,unsigned w,unsigned h,CpMfFrame f,void *ctx,void **handle) {
-    if(!handle||(window && !IsWindow(window))||w<48||h<48||w>4096||h>2304) return E_INVALIDARG; *handle=0;
+extern "C" HRESULT cpMfCreate(HWND window,unsigned w,unsigned h,unsigned maxFPS,CpMfFrame f,void *ctx,void **handle) {
+    if(!handle) return E_INVALIDARG; *handle=0;
+    if((window && !IsWindow(window))||w<48||h<48||w>4096||h>2304||maxFPS<1||maxFPS>60) return E_INVALIDARG;
     // Allocated and released in this module; no C++ objects cross the C boundary.
-    State *s=new State(window,w,h,f,ctx);
+    State *s=new State(window,w,h,maxFPS,f,ctx);
     s->event=CreateEventW(0,FALSE,FALSE,0); s->initialized=CreateEventW(0,TRUE,FALSE,0);
     if(!s->event||!s->initialized) { delete s; return E_OUTOFMEMORY; }
     s->thread=CreateThread(0,0,worker,s,0,0);

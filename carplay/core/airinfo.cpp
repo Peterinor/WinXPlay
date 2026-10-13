@@ -5,6 +5,7 @@ Value airplayInfo(unsigned width, unsigned height, const MediaCapabilities &capa
     require(width >= 800 && width <= 1920 && height >= 480 && height <= 1080 && width % 4 == 0 &&
                 height % 2 == 0,
             "Invalid display dimensions");
+    require(capabilities.maxFPS>=1 && capabilities.maxFPS<=60,"Invalid display frame rate");
     Value v = Value::dictionary();
     require(!capabilities.deviceId.empty() && !capabilities.displayUuid.empty(),"Missing accessory identity");
     v.dict["name"] = Value::str(capabilities.displayName);
@@ -50,19 +51,21 @@ Value airplayInfo(unsigned width, unsigned height, const MediaCapabilities &capa
     // PCM for voice/legacy music and AAC-LC for high-quality/buffered music.
     for (unsigned type = 100; type <= 101; ++type)
         for (unsigned i = 0; i < (type == 101 ? 2u : 6u); ++i) {
+            bool input=capabilities.microphone && type==100 && (i==0 || i==1 || i==3 || i==4);
+            if(!capabilities.audioOutput && !input)continue;
             Value f = Value::dictionary();
             f.dict["type"] = Value::num(type);
             f.dict["audioType"] = Value::str(audioTypes[i]);
-            f.dict["audioOutputFormats"] = Value::num(i == 3 || i == 4 ? 0x4154 : 0xc3fc);
+            if(capabilities.audioOutput)f.dict["audioOutputFormats"] = Value::num(i == 3 || i == 4 ? 0x4154 : 0xc3fc);
             formats.array.push_back(f);
-            if (capabilities.microphone && type == 100 && (i == 0 || i == 1 || i == 3 || i == 4))
+            if (input)
                 formats.array.back().dict["audioInputFormats"] = Value::num(0x4154);
             f.dict.erase("audioOutputFormats");
             f.dict["inputLatencyMicros"] = Value::num(0);
             f.dict["outputLatencyMicros"] = Value::num(50000);
             latencies.array.push_back(f);
         }
-    if (capabilities.aac) {
+    if (capabilities.audioOutput && capabilities.aac) {
         Value aac = Value::dictionary();
         aac.dict["type"] = Value::num(102);
         aac.dict["audioType"] = Value::str("media");
@@ -76,6 +79,9 @@ Value airplayInfo(unsigned width, unsigned height, const MediaCapabilities &capa
     }
     v.dict["audioFormats"] = formats;
     for (unsigned t = 100; t <= 102; ++t) {
+        if(t==100 && !capabilities.audioOutput && !capabilities.microphone)continue;
+        if(t==101 && !capabilities.audioOutput)continue;
+        if(t==102 && (!capabilities.audioOutput || !capabilities.aac))continue;
         Value latency = Value::dictionary();
         latency.dict["type"] = Value::num(t);
         latency.dict["inputLatencyMicros"] = Value::num(0);
@@ -91,7 +97,7 @@ Value airplayInfo(unsigned width, unsigned height, const MediaCapabilities &capa
     Value display = Value::dictionary();
     display.dict["uuid"] = Value::str(uuid);
     display.dict["type"] = Value::num(110);
-    display.dict["maxFPS"] = Value::num(30);
+    display.dict["maxFPS"] = Value::num(capabilities.maxFPS);
     display.dict["widthPixels"] = Value::num(width);
     display.dict["heightPixels"] = Value::num(height);
     display.dict["widthPhysical"] = Value::num(180);

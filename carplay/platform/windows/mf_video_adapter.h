@@ -3,6 +3,6 @@
 #include "../common/native_services.h"
 #include "../../interfaces/media.h"
 namespace cp {
-VideoPipeline *createSystemVideo(HWND, VideoCallback, void *, unsigned, unsigned);
+VideoPipeline *createSystemVideo(HWND, VideoCallback, void *, unsigned, unsigned, unsigned maxFPS);
 }
 #endif

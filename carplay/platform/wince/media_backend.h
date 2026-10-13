@@ -17,6 +17,7 @@ class AudioOutputBackend {
     virtual void reap() = 0;
     virtual unsigned playedBytes() const = 0;
     virtual void pause(bool) = 0;
+    virtual Value metrics() const { return Value::dictionary(); }
 };
 class AudioInputBackend {
   public:

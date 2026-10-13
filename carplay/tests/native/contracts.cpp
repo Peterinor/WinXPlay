@@ -2,6 +2,7 @@
 // headers or application platform, codec, crypto-provider or device code is used.
 #include "../../core/receiver.h"
 #include "../../core/buffered_audio.h"
+#include "../../core/media_metrics.h"
 #include <iostream>
 #include <limits>
 using namespace cp;
@@ -168,6 +169,14 @@ void capabilities() {
     MediaCapabilities pcm;
     pcm.deviceId="02:00:00:00:00:01";pcm.displayUuid="12345678-1234-4234-8234-123456789abc";
     Value a = airplayInfo(800, 480, pcm);
+    CHECK(a.at("displays").array[0].at("maxFPS").integer==30);
+    const unsigned rates[]={15,20,25,30,60};
+    for(unsigned n=0;n<5;++n){pcm.maxFPS=rates[n];
+        CHECK(airplayInfo(800,480,pcm).at("displays").array[0].at("maxFPS").integer==rates[n]);}
+    const unsigned invalid[]={0,61};
+    for(unsigned n=0;n<2;++n){pcm.maxFPS=invalid[n];bool rejected=false;
+        try{airplayInfo(800,480,pcm);}catch(...){rejected=true;}CHECK(rejected);}
+    pcm.maxFPS=30;
     CHECK(!a.dict.count("mainBufferedInfo"));
     for (size_t i = 0; i < a.at("audioFormats").array.size(); ++i)
         CHECK(a.at("audioFormats").array[i].at("type").integer < 102);
@@ -182,6 +191,19 @@ void capabilities() {
     a=airplayInfo(800,480,pcm);
     for(size_t i=0;i<a.at("audioFormats").array.size();++i)
         CHECK(!a.at("audioFormats").array[i].dict.count("audioInputFormats"));
+    // Output/input are independent, including AAC removal when output is off.
+    for(unsigned bits=0;bits<4;++bits){
+        full.audioOutput=(bits&1)!=0;full.microphone=(bits&2)!=0;
+        Value info=airplayInfo(800,480,full);bool output=false,input=false;
+        for(size_t i=0;i<info.at("audioFormats").array.size();++i){
+            const Value &f=info.at("audioFormats").array[i];
+            output=output||f.dict.count("audioOutputFormats");input=input||f.dict.count("audioInputFormats");
+            if(!full.audioOutput)CHECK(f.at("type").integer==100);
+        }
+        CHECK(output==full.audioOutput && input==full.microphone);
+        CHECK(bool(info.dict.count("mainBufferedInfo"))==full.audioOutput);
+        if(!bits)CHECK(info.at("audioLatencies").array.empty());
+    }
 }
 void inputProtocol() {
     std::vector<Value> commands;
@@ -300,6 +322,41 @@ void scopedLock() {
     }
     CHECK(runtime.locks == 0);
 }
+void mediaMetrics() {
+    MediaMetrics m(100);m.receive(120,10);m.receive(170,20);
+    m.parsed(180,2,2,1,10);m.submitted=2;m.submitTime(40);
+    m.audioTime(5);m.audioTime(12);
+    m.audioDecryptTime(2);m.audioDecryptTime(3);
+    Value first=m.sample(1100);
+    CHECK(first.at("window_ms").integer==1000 && first.at("rx_bytes_delta").integer==30);
+    CHECK(first.at("n2_delta").integer==2 && first.at("n3_delta").integer==2);
+    CHECK(first.at("rx_gap_max_ms").integer==50 && first.at("submit_max_ms").integer==40);
+    CHECK(first.at("audio_process_ms").integer==17 && first.at("audio_process_max_ms").integer==12);
+    CHECK(first.at("audio_decrypt_ms").integer==5 && first.at("audio_decrypt_max_ms").integer==3);
+    CHECK(first.at("n1").string=="unknown" && first.at("n4_display").string=="unknown");
+    Value idle=m.sample(2400);
+    CHECK(idle.at("window_ms").integer==1300 && idle.at("n2_delta").integer==0);
+    CHECK(idle.at("n2").integer==2 && idle.at("submit_max_ms").integer==0);
+    CHECK(idle.at("frame_idle_ms").integer==2220);
+    CHECK(idle.at("audio_process_ms").integer==0 && idle.at("audio_process_max_ms").integer==0);
+    CHECK(idle.at("audio_decrypt_ms").integer==0 && idle.at("audio_decrypt_max_ms").integer==0);
+    // A failed encrypted message remains received but never becomes N3.
+    m.parsed(2500,1,0,0,5);++m.errors;
+    Value failed=m.sample(3400);
+    CHECK(failed.at("n2").integer==3 && failed.at("n3").integer==2 && failed.at("parse_errors").integer==1);
+    MediaMetrics wrapped(0xfffffff0U);wrapped.receive(0xfffffff5U,1);wrapped.receive(20,2);
+    Value w=wrapped.sample(32);
+    CHECK(w.at("window_ms").integer==48 && w.at("rx_gap_max_ms").integer==31);
+    // Fragmented/coalesced protocol data must not count recv calls as frames.
+    TestCrypto crypto;ScreenParser parser(crypto,Bytes(32,0));Bytes config(128,0);config[4]=1;
+    parser.feed(Bytes(config.begin(),config.begin()+64));
+    CHECK(parser.configurations()==0 && parser.pendingBytes()==64);
+    parser.feed(Bytes(config.begin()+64,config.end()));
+    CHECK(parser.configurations()==1 && parser.receivedFrames()==0);
+    Bytes encrypted(144,0);encrypted[0]=16;bool rejected=false;
+    try{parser.feed(encrypted);}catch(...){rejected=true;}
+    CHECK(rejected && parser.receivedFrames()==1 && parser.decryptedFrames()==0);
+}
 } // namespace
 int main() {
     try {
@@ -310,7 +367,8 @@ int main() {
         constructionFailure();
         audioOwnership();
         scopedLock();
-        std::cout << "7 portable contract groups passed; no application platform code linked\n";
+        mediaMetrics();
+        std::cout << "8 portable contract groups passed; no application platform code linked\n";
         return 0;
     } catch (const std::exception &e) {
         std::cerr << e.what() << "\n";

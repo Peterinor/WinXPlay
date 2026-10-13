@@ -1,11 +1,29 @@
 #include "receiver.h"
 #include "pairing.h"
 #include "buffered_audio.h"
+#include "media_metrics.h"
 #include <sstream>
 #include <memory>
 #include <algorithm>
 namespace cp {
 namespace {
+// Finalize counters even when authentication or downstream submission throws.
+struct VideoBatchMetrics {
+    MediaMetrics &metrics; ScreenParser &parser; SessionRuntime &runtime;
+    U64 received, decrypted, config;
+    U32 start, parsedAt; bool parsed;
+    VideoBatchMetrics(MediaMetrics &m,ScreenParser &p,SessionRuntime &r):metrics(m),parser(p),runtime(r),
+        received(p.receivedFrames()),decrypted(p.decryptedFrames()),config(p.configurations()),
+        start(r.milliseconds()),parsedAt(0),parsed(false){}
+    void parsingFinished(){parsedAt=runtime.milliseconds();parsed=true;}
+    ~VideoBatchMetrics(){
+        U32 now=runtime.milliseconds();
+        metrics.parsed(parsed?parsedAt:now,parser.receivedFrames()-received,
+            parser.decryptedFrames()-decrypted,parser.configurations()-config,(parsed?parsedAt:now)-start);
+        if(parsed)metrics.submitTime(now-parsedAt);else ++metrics.errors;
+        metrics.pendingBytes=U32(parser.pendingBytes());
+    }
+};
 std::string decimal(U64 n) {
     std::ostringstream s;
     s << n;
@@ -64,6 +82,7 @@ struct Receiver::Impl {
     InputQueue inputs;
     VideoPipeline *video;
     Value stats;
+    MediaMetrics metrics;
     Connection controlSocket, eventSocket;
     unsigned boundPort, width, height;
     std::string publicHex;
@@ -81,7 +100,7 @@ struct Receiver::Impl {
           media(services.media), capabilities(media.capabilities()),
           pairing(crypto, services.store), auth(services.identity), statusCb(sc), controlCb(0), controlContext(0), context(ctx),
           inputs(w,h,capabilities.touch,capabilities.controls),
-          video(0), stats(Value::dictionary()), controlSocket(InvalidConnection),
+          video(0), stats(Value::dictionary()), metrics(runtime.milliseconds()), controlSocket(InvalidConnection),
           eventSocket(InvalidConnection), boundPort(0), width(w), height(h), commandSequence(1),
           peerKnown(false), audioReleased(false), physicalDevice(physical),
           firstVideo(false), startupHomeDone(false), userInputSeen(false), firstVideoAt(0),
@@ -97,6 +116,7 @@ struct Receiver::Impl {
             airplayInfo(width, height, capabilities);
             stats.dict["video_width"] = Value::num(width);
             stats.dict["video_height"] = Value::num(height);
+            stats.dict["video_max_fps"] = Value::num(capabilities.maxFPS);
             stats.dict["port"] = Value::num(boundPort);
             stats.dict["device_id"]=Value::str(capabilities.deviceId);
             stats.dict["accessory_serial"]=Value::str(capabilities.serialNumber);
@@ -105,6 +125,8 @@ struct Receiver::Impl {
             stats.dict["audio_packets"] = Value::num(0);
             stats.dict["video_only"] = Value::flag(!capabilities.audioOutput);
             stats.dict["audio_output_enabled"] = Value::flag(capabilities.audioOutput);
+            stats.dict["aac_offered"] = Value::flag(capabilities.audioOutput && capabilities.aac);
+            stats.dict["buffered_aac_offered"] = Value::flag(capabilities.audioOutput && capabilities.bufferedAac);
             stats.dict["microphone_enabled"] = Value::flag(capabilities.microphone);
             stats.dict["touch_enabled"] = Value::flag(capabilities.touch);
             stats.dict["physical_media_verified"] = Value::flag(false);
@@ -211,6 +233,8 @@ struct Receiver::Impl {
                 flag("video_setup");
                 note("Video negotiated; waiting for data");
             } else if (type == 100 || type == 101 || type == 102) {
+                require(capabilities.audioOutput || (capabilities.microphone && type==100 && number(s,"dataPort")),
+                        "Audio output is disabled");
                 unsigned bits = number(s, "audioFormat"), rate = 0, channels = 0;
                 const unsigned rates[] = {8000, 16000, 24000, 32000, 44100, 48000};
                 const unsigned masks[] = {4, 16, 64, 256, 1024, 16384};
@@ -236,6 +260,7 @@ struct Receiver::Impl {
                     stats.dict["audio_sample_rate"] = Value::num(rate);
                     stats.dict["audio_channels"] = Value::num(channels);
                     stats.dict["audio_codec"] = Value::str(aac ? "AAC-LC" : "PCM16");
+                    stats.dict["audio_stream_type"] = Value::num(type);
                 }
                 r.dict["dataPort"] = Value::num(open(7, false, streamKey(s), type));
                 Endpoint *e = endpoints.back();
@@ -261,7 +286,7 @@ struct Receiver::Impl {
                 flag("audio_setup");
                 note("Audio negotiated; waiting for data");
             } else if (type == 103) {
-                require(capabilities.bufferedAac, "Buffered AAC was not offered by receiver");
+                require(capabilities.audioOutput && capabilities.bufferedAac, "Buffered AAC was not offered by receiver");
                 unsigned bits = number(s, "audioFormat");
                 require(bits == 0x800000 || bits == 0x400000, "Unsupported buffered audio format");
                 require(number(s, "ct", 4) == 4 && number(s, "spf", 1024) == 1024,
@@ -591,10 +616,13 @@ struct Receiver::Impl {
         if (!peerKnown || !source.sameHost(peerSocketAddress))
             return;
         if (e.role == 7) {
+            U32 audioStart=runtime.milliseconds();
             Bytes pcm = decryptAudio(crypto, e.key, b);
+            metrics.audioDecryptTime(U32(runtime.milliseconds()-audioStart));
             e.audio->receive(pcm);
             count("audio_packets");
             count("audio_payload_bytes", pcm.size());
+            metrics.audioTime(U32(runtime.milliseconds()-audioStart));
         }
         if (e.role == 9 && b.size() >= 32 && b[1] == 0xd2) {
             Bytes out(32, 0);
@@ -637,6 +665,7 @@ struct Receiver::Impl {
                 }
             }
         }
+        self.captureMetrics(); // Exclude decoder shutdown/drain from playback window.
         try {
             if (self.video)
                 self.video->finish();
@@ -648,10 +677,29 @@ struct Receiver::Impl {
         self.save();
     }
     void save() {
+        U32 start=runtime.milliseconds();
         try {
             runtime.saveReport(snapshot());
         } catch (...) {
         }
+        metrics.reportMs+=U32(runtime.milliseconds()-start);
+    }
+    void captureMetrics() {
+        U32 start=runtime.milliseconds();
+        try {
+            Value sample=metrics.sample(runtime.milliseconds());
+            sample.dict["max_fps"]=Value::num(capabilities.maxFPS);
+            if(video)sample.dict["video"]=video->metrics();
+            Value audio=Value::list();
+            for(size_t i=0;i<endpoints.size();++i)if(endpoints[i]->role && endpoints[i]->audio){
+                Value stream=endpoints[i]->audio->metrics();
+                stream.dict["type"]=Value::num(endpoints[i]->type);
+                audio.array.push_back(stream);
+            }
+            sample.dict["audio"]=audio;
+            SessionLock guard(runtime);stats.dict["media_metrics"]=sample;
+        }catch(...){} // Logging must not terminate playback.
+        metrics.reportMs+=U32(runtime.milliseconds()-start);
     }
     void run() {
         note("AirPlay receiver listening");
@@ -712,12 +760,16 @@ struct Receiver::Impl {
                             network.sendAll(e.socket,
                                             e.cipher->encrypt(response(requests[k], 200, Bytes())));
                 } else if (e.role == 6) {
+                    metrics.receive(runtime.milliseconds(),b.size());
+                    VideoBatchMetrics batch(metrics,*e.screen,runtime);
                     std::vector<VideoPacket> packets = e.screen->feed(b);
+                    batch.parsingFinished();
                     for (size_t j = 0; j < packets.size(); ++j) {
                         if (packets[j].type == 1)
                             video->submit(avccToAnnexB(packets[j].body), 0);
                         else if (packets[j].type == 0) {
                             video->submit(packets[j].body, 0);
+                            ++metrics.submitted;
                             if (!firstVideo && !packets[j].body.empty()) {
                                 firstVideo=true;firstVideoAt=runtime.milliseconds();
                                 note("CarPlay video streaming");
@@ -744,6 +796,7 @@ struct Receiver::Impl {
             microphone();
             eventCommands();
             if (U32(runtime.milliseconds() - saved) > 1000) {
+                captureMetrics();
                 save();
                 saved = runtime.milliseconds();
             }

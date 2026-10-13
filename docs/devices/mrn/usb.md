@@ -28,6 +28,8 @@ LoadClients\1452\Default\255_254_2\WinXPlayUsbMux
 LoadClients\1452\Default\Default\WinXPlayUsbMux
 ```
 
+注册表创建、写入、读回和卸载使用 [WinCE 通用实现](../../../carplay/platform/wince/usb_driver/registry_registration.h)，设备层只判断是否命中已知空实现。
+
 第二项匹配 USBMUX 接口，第三项用于整机引导。写入 DLL 路径后必须读回验证。匹配项存在只代表注册准备完成，不代表 USBDeviceAttach 已执行。
 
 ### CMX 流设备激活
@@ -47,7 +49,7 @@ HKLM\Drivers\USB\LoadClients\1452\0_0_0\2_13_0\USBCDCNCM
 
 DLL 均为 `usbcdcncm.dll`。不能把中间组改成 `Default`：该原厂驱动检查匹配所得 USB_DRIVER_SETTINGS 的设备类别，而不仅检查实时接口描述符，拒绝通配值 `0xFFFFFFFF`。保留 `0_0_0` 是已采用的兼容条件。
 
-[usb_configuration.h](../../../carplay/devices/mrn/usb_configuration.h)先验证原厂 DLL 和规则，限定新增路径，保留冲突值，写入后读回，失败时回滚自身写入。不改原厂 DLL、不覆盖原厂规则或 Comm/IP 配置。注册变化需要重新枚举，不能据此报告 NCM 网卡已经就绪。
+[usb_configuration.h](../../../carplay/platform/wince/usb_configuration.h)先验证原厂 DLL 和规则，限定新增路径，保留冲突值，写入后读回，失败时回滚自身写入。不改原厂 DLL、不覆盖原厂规则或 Comm/IP 配置。注册变化需要重新枚举，不能据此报告 NCM 网卡已经就绪。
 
 这一匹配修正已有指定 MRN 上出现 USBCDCNCM1、IPv6 链路本地地址及媒体 SETUP/RECORD 的记录，支持采用该规则；不代表所有手机、长时会话或物理音视频已验收。
 

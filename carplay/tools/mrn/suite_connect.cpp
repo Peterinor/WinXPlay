@@ -1,5 +1,5 @@
-﻿#include "suite.h"
-#include "../../devices/mrn/portable.h"
+#include "suite.h"
+#include "../../platform/wince/portable.h"
 #include <sstream>
 int WINAPI NetworkTestMain(HINSTANCE,HINSTANCE,LPWSTR,int);
 int WINAPI ReceiverMain(HINSTANCE,HINSTANCE,LPWSTR,int);

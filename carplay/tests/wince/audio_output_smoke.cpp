@@ -1,5 +1,5 @@
 #include "../../platform/common/legacy_media.h"
-#include "../../devices/mrn/audio_output.h"
+#include "../../platform/wince/audio_recovery.h"
 #include <cstdio>
 using namespace cp;
 #ifdef WINXPLAY_AUDIO_RECOVERY_HOST_TEST
@@ -32,10 +32,11 @@ struct FakeOutput:AudioOutputBackend {
 };
 }
 namespace cp {
+AudioOutputBackend *createTestOutput(unsigned,unsigned);
 AudioOutputBackend *createAudioOutputBackend(const std::wstring &,unsigned r,unsigned c){
-    return createMrnRecoveringOutput(r,c);
+    return createRecoveringOutput(r,c,createTestOutput,2000,"test_wave_retry");
 }
-AudioOutputBackend *createMrnTtsOutput(unsigned r,unsigned c){
+AudioOutputBackend *createTestOutput(unsigned r,unsigned c){
     ++opens;
     if(realDevice)return createWaveOutput(r,c);
     if(busy)throw std::runtime_error("waveOutOpen failed: MMRESULT=4");

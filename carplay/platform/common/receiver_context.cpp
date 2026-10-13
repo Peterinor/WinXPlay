@@ -1,5 +1,11 @@
 #include "receiver_context.h"
 #include "diagnostics.h"
+#ifdef CARPLAY_CE_AAC
+#include "../wince/audio_aac.h"
+#endif
+#if WINXPLAY_ENABLE_LOGS
+#include "report_worker.h"
+#endif
 #ifdef CARPLAY_CE_DSHOW
 #include "../wince/video_dshow.h"
 #endif
@@ -13,6 +19,7 @@
 #include "../../devices/profile.h"
 #include <memory>
 #include <algorithm>
+#include <sstream>
 namespace cp {
 namespace {
 sockaddr_in6 nativeAddress(const PeerAddress &p) {
@@ -127,11 +134,40 @@ class SocketTransport : public Transport {
         return ready;
     }
 };
+// Keep one compact line per stage/window; no media contents enter the trace.
+std::string metricFields(const Value &v) {
+    std::ostringstream s;
+    for(std::map<std::string,Value>::const_iterator i=v.dict.begin();i!=v.dict.end();++i){
+        if(i->second.type==Value::Integer)s<<i->first<<"="<<i->second.integer<<" ";
+        else if(i->second.type==Value::Boolean)s<<i->first<<"="<<i->second.boolean<<" ";
+        else if(i->second.type==Value::String)s<<i->first<<"="<<i->second.string<<" ";
+    }
+    return s.str();
+}
 class NativeRuntime : public SessionRuntime {
     HANDLE thread_, stop_;
     CRITICAL_SECTION mutex_;
     void (*entry_)(void *);
     void *context_;
+#if WINXPLAY_ENABLE_LOGS
+    std::wstring reportPath_;
+    ReportWorker reports_;
+    static void writeReport(const Value &report,void *path) {
+        if(report.dict.count("media_metrics")){
+            const Value &m=report.at("media_metrics");
+            std::ostringstream key;key<<"session="<<m.at("start_tick_ms").integer<<" tick="<<m.at("tick_ms").integer<<" ";
+            key<<"reports_dropped="<<report.at("diagnostic_reports_dropped").integer
+               <<" reports_failed="<<report.at("diagnostic_reports_failed").integer<<" ";
+            diagnosticEvent("MEDIA_RX",key.str()+metricFields(m));
+            if(m.dict.count("video"))diagnosticEvent("MEDIA_VIDEO",key.str()+metricFields(m.at("video")));
+            if(m.dict.count("audio"))for(size_t i=0;i<m.at("audio").array.size();++i){
+                std::ostringstream stream;stream<<key.str()<<"stream="<<i<<" ";
+                diagnosticEvent("MEDIA_AUDIO",stream.str()+metricFields(m.at("audio").array[i]));
+            }
+        }
+        writeDiagnosticFile(*(std::wstring*)path,xmlPlist(report));
+    }
+#endif
     static DWORD WINAPI run(void *p) {
 #ifdef UNDER_CE
         __try {
@@ -145,7 +181,12 @@ class NativeRuntime : public SessionRuntime {
     }
 
   public:
-    NativeRuntime() : thread_(0), stop_(0), entry_(0), context_(0) {
+    NativeRuntime() : thread_(0), stop_(0), entry_(0), context_(0)
+#if WINXPLAY_ENABLE_LOGS
+        ,reportPath_(environment(L"CARPLAY_REPORT",(executableDirectory()+L"/streaming-diagnostics.plist").c_str())),
+        reports_(writeReport,&reportPath_)
+#endif
+    {
         stop_ = CreateEventW(0, TRUE, FALSE, 0);
         require(stop_ != 0, "Receiver cancellation failed");
         InitializeCriticalSection(&mutex_);
@@ -178,6 +219,9 @@ class NativeRuntime : public SessionRuntime {
         CancelSynchronousIo(thread_);
 #endif
         WaitForSingleObject(thread_, INFINITE);
+#if WINXPLAY_ENABLE_LOGS
+        reports_.flush();
+#endif
     }
     void lock() {
         EnterCriticalSection(&mutex_);
@@ -201,9 +245,9 @@ class NativeRuntime : public SessionRuntime {
         return ((ticks / 10000000) << 32) | (((ticks % 10000000) << 32) / 10000000);
     }
     void saveReport(const Value &report) {
-        writeDiagnosticFile(environment(L"CARPLAY_REPORT",
-                              (executableDirectory() + L"/streaming-diagnostics.plist").c_str()),
-                  xmlPlist(report));
+#if WINXPLAY_ENABLE_LOGS
+        reports_.submit(report);
+#endif
     }
 };
 class ProtectedStore : public PairingStore {
@@ -261,6 +305,9 @@ class LegacyAudio : public AudioOutput {
     void pause(bool p) {
         audio_.pause(p);
     }
+#if defined(UNDER_CE) || defined(WINXPLAY_AUDIO_RECOVERY_HOST_TEST)
+    Value metrics() const { return audio_.metrics(); }
+#endif
 };
 class LegacyInput : public AudioInput {
     LiveMicrophone* input_;
@@ -327,13 +374,13 @@ class NativeMedia : public MediaFactory {
     }
     VideoPipeline *video(unsigned w, unsigned h) {
 #ifdef CARPLAY_CE_DSHOW
-        return createCeSystemVideo(window_,w,h);
+        return createCeSystemVideo(window_,w,h,capabilities().maxFPS);
 #elif defined(CARPLAY_HAS_MF)
         Value selected=Value::dictionary();
         selected.dict["backend"]=Value::str("media_foundation_d3d11");
         selected.dict["stage"]=Value::str("starting");
         writeDiagnosticFile(executableDirectory()+L"/video-backend.plist",xmlPlist(selected));
-        return createSystemVideo(window_,callback_,context_,w,h);
+        return createSystemVideo(window_,callback_,context_,w,h,capabilities().maxFPS);
 #else
         return new LegacyVideo(callback_, context_, w, h);
 #endif
@@ -360,12 +407,16 @@ MediaCapabilities applicationMediaCapabilities() {
     MediaCapabilities c;
     c.model = deviceProfile().model;
     c.displayName = deviceProfile().displayName;
-    c.microphone = environment(L"CARPLAY_MICROPHONE",L"1") != L"0";
+    c.maxFPS = deviceProfile().maxFPS;
+    c.audioOutput = environment(L"CARPLAY_AUDIO_OUTPUT",deviceProfile().audio.output?L"1":L"0") != L"0";
+    c.microphone = environment(L"CARPLAY_MICROPHONE",deviceProfile().audio.input?L"1":L"0") != L"0";
     c.touch = environment(L"CARPLAY_TOUCH",L"1") != L"0";
     c.controls = environment(L"CARPLAY_CONTROLS",L"1") != L"0";
 #ifndef WINXPLAY_WOLFSSL
-    c.aac = true;
-    c.bufferedAac = true;
+    c.aac = c.audioOutput;
+    c.bufferedAac = c.audioOutput;
+#elif defined(CARPLAY_CE_AAC)
+    c.aac = c.audioOutput && environment(L"CARPLAY_AAC",L"1")!=L"0" && winceAacAvailable();
 #endif
     return c;
 }

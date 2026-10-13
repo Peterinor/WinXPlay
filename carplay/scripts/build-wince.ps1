@@ -52,6 +52,7 @@ try {
   $taskAppFlags=$taskFlags+@('/EHsc','/DWINXPLAY_WOLFSSL')
   if($Desktop -and !$SelftestOnly){$taskAppFlags+='/DCARPLAY_HAS_MF'}
   if($taskDevice -eq 'mrn'){$taskAppFlags+=@('/DCARPLAY_CE_DSHOW','/DWINXPLAY_DEVICE_MRN','/Zc:wchar_t-')}
+  if(!$Desktop){$taskAppFlags+='/DCARPLAY_CE_AAC'}
   $taskCore=Join-Path $taskRoot 'core'
   $taskAppObjects=@()
   foreach($stem in @('protocol','plist','link','auth','identification','airinfo','input')){
@@ -82,10 +83,11 @@ try {
     & $taskCl @taskAppFlags "/Fo$object" $source
     if($LASTEXITCODE -ne 0){throw "Shared adapter compile failed: $stem"}
    }
-   $taskNative=if($Desktop){@('auth','main')}else{@('auth','audio','video','backend_registry','device_wince','usbmux','main','phone_pair','phone_identity_wolfssl')}
-   if(!$Desktop -and !$Generic){$taskNative+=@('video_dshow','portable','audio_output','audio_recovery');$taskLinkFlags+=@('strmbase.lib','strmiids.lib','ole32.lib','uuid.lib')}
+   $taskNative=if($Desktop){@('auth','main')}else{@('auth','audio','video','backend_registry','device_wince','usbmux','main','phone_pair','phone_identity_wolfssl','portable','wave_mixer','audio_recovery')}
+   if(!$Desktop){$taskNative+='audio_aac';$taskLinkFlags+=@('ole32.lib','uuid.lib','dmoguids.lib')}
+   if(!$Desktop -and !$Generic){$taskNative+=@('video_dshow','audio_route','audio_input');$taskLinkFlags+=@('strmbase.lib','strmiids.lib','ole32.lib','uuid.lib')}
    foreach($stem in $taskNative){
-    $source=if($stem -eq 'auth'){"$taskSharedCommon/identity_wolfssl.cpp"}elseif($stem -eq 'phone_pair' -or $stem -eq 'phone_identity_wolfssl'){"$taskSharedCommon/$stem.cpp"}elseif($stem -eq 'device_wince'){"$taskDeviceRoot/wince.cpp"}elseif($stem -in @('portable','audio_output','audio_recovery')){"$taskRoot/devices/mrn/$stem.cpp"}else{"$taskCe/$stem.cpp"}
+    $source=if($stem -eq 'auth'){"$taskSharedCommon/identity_wolfssl.cpp"}elseif($stem -eq 'phone_pair' -or $stem -eq 'phone_identity_wolfssl'){"$taskSharedCommon/$stem.cpp"}elseif($stem -eq 'device_wince'){"$taskDeviceRoot/wince.cpp"}elseif($stem -eq 'audio_route' -or $stem -eq 'audio_input'){"$taskDeviceRoot/$stem.cpp"}else{"$taskCe/$stem.cpp"}
     $object="ce_$stem.obj"; $taskAppObjects+=$object
     & $taskCl @taskAppFlags "/Fo$object" $source
     if($LASTEXITCODE -ne 0){throw "Native backend compile failed: $stem"}

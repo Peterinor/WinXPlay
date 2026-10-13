@@ -8,7 +8,7 @@ BUILD=ROOT/'build/firmware/ab_bridge'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
     verification=json.loads((BUILD/'verification.json').read_text(encoding='utf-8'))
-    # Standard-window bridge suite: 10 bridge cases and 6 patch cases.
+    # Standard-window bridge suite, including timeout recovery and patch ABI.
     assert verification['passed'] and verification['tests_run']>=16
     for name,digest in verification['binaries'].items():assert sha(BUILD/name)==digest,name
     layer=json.loads((BUILD/'layer-verification.json').read_text(encoding='utf-8'))

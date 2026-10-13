@@ -4,10 +4,11 @@
 namespace cp {
 struct MediaCapabilities {
     bool aac, bufferedAac, audioOutput, microphone, touch, controls;
+    unsigned maxFPS; // Advertised ceiling and nominal local video timing.
     std::string model, displayName;
     std::string deviceId, serialNumber, displayUuid;
     MediaCapabilities() : aac(false), bufferedAac(false), audioOutput(true), microphone(true),
-                          touch(true), controls(true), model("CarPlayReceiver1,1"), displayName("WinXPlay") {}
+                          touch(true), controls(true), maxFPS(30), model("CarPlayReceiver1,1"), displayName("WinXPlay") {}
 };
 class VideoPipeline {
   public:
@@ -20,6 +21,8 @@ class VideoPipeline {
     virtual unsigned frames() const = 0;
     // Async backends surface worker/decoder failures even when no new frame arrives.
     virtual void checkStatus() const {}
+    // Optional backend telemetry; absent fields mean unavailable, never zero.
+    virtual Value metrics() const { return Value::dictionary(); }
 };
 class AudioOutput {
   public:
@@ -29,6 +32,7 @@ class AudioOutput {
     virtual void receive(const Bytes &) = 0;
     virtual unsigned playedBytes() const = 0;
     virtual void pause(bool) = 0;
+    virtual Value metrics() const { return Value::dictionary(); }
 };
 class AudioInput {
   public:

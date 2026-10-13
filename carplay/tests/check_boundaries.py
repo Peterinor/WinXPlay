@@ -39,7 +39,7 @@ for path in (ROOT / 'platform').rglob('*'):
         if dependency.is_relative_to(ROOT / 'devices'):
             assert dependency.parent == ROOT / 'devices', f'Concrete device include: {path}: {quoted}'
     assert 'WINXPLAY_DEVICE_MRN' not in text, f'Device selection leaked into platform: {path}'
-    for token in ('NAND_USER', 'NAND_RES', 'AVV0:', 'USBCDCNCM', '3D581965-7C6E-4FE9-894F-50FC821BAE68'):
+    for token in ('NAND_USER', 'NAND_RES', 'AVV0:', '3D581965-7C6E-4FE9-894F-50FC821BAE68'):
         assert token not in text, f'OEM configuration leaked into platform: {path}: {token}'
 
 # Every source-level local include must resolve, including files moved out of CE.

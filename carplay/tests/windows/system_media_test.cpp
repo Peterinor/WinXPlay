@@ -7,7 +7,7 @@
 
 static HWND window;
 static const wchar_t *inputPath,*outputPath;
-static unsigned width,height,expected,interval;
+static unsigned width,height,expected,interval,maxFPS=30;
 static int result=1;
 static unsigned __int64 ticks(FILETIME f) { return ((unsigned __int64)f.dwHighDateTime<<32)|f.dwLowDateTime; }
 static DWORD WINAPI run(void*) {
@@ -28,10 +28,12 @@ static DWORD WINAPI run(void*) {
     starts.push_back(unsigned(size));
     FILETIME c,e,k0,u0,k1,u1; GetProcessTimes(GetCurrentProcess(),&c,&e,&k0,&u0);
     DWORD begin=GetTickCount(); void *handle=0;
-    HRESULT hr=cpMfCreate(window,width,height,0,0,&handle);
-    bool bounds=true,lifecycle=true;
+    bool bounds=FAILED(cpMfCreate(window,width,height,0,0,0,&handle)) && !handle &&
+                FAILED(cpMfCreate(window,width,height,61,0,0,&handle)) && !handle;
+    HRESULT hr=cpMfCreate(window,width,height,maxFPS,0,0,&handle);
+    bool lifecycle=true;
     if(SUCCEEDED(hr)) {
-        bounds=FAILED(cpMfSubmit(handle,0,1)) && FAILED(cpMfSubmit(handle,&bytes[0],0)) &&
+        bounds=bounds && FAILED(cpMfSubmit(handle,0,1)) && FAILED(cpMfSubmit(handle,&bytes[0],0)) &&
                FAILED(cpMfSubmit(handle,&bytes[0],8*1024*1024+1));
         for(unsigned i=0;i+1<starts.size() && SUCCEEDED(hr);++i) {
             hr=cpMfSubmit(handle,&bytes[starts[i]],starts[i+1]-starts[i]);
@@ -49,7 +51,7 @@ static DWORD WINAPI run(void*) {
             GetTickCount()-begin,(ticks(k1)+ticks(u1)-ticks(k0)-ticks(u0))/10000,stats.maxQueueBytes,stats.totalPresentUs,stats.totalQueueUs,stats.maxQueueUs);
         fclose(f);
     }
-    result=SUCCEEDED(hr) && bounds && lifecycle && stats.frames==expected && stats.gpuSamples==expected && stats.cpuSamples==0 && stats.width==width && stats.height==height?0:1;
+    result=SUCCEEDED(hr) && bounds && lifecycle && stats.maxFPS==maxFPS && stats.frames==expected && stats.gpuSamples==expected && stats.cpuSamples==0 && stats.width==width && stats.height==height?0:1;
     cpMfDestroy(handle); PostMessage(window,WM_CLOSE,0,0); return result;
 }
 static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l) {
@@ -63,6 +65,7 @@ int wmain(int argc,wchar_t **argv) {
     if(argc<7) return 2;
     timeBeginPeriod(1);
     inputPath=argv[1]; outputPath=argv[2]; width=_wtoi(argv[3]); height=_wtoi(argv[4]); expected=_wtoi(argv[5]); interval=_wtoi(argv[6]);
+    if(argc>7)maxFPS=_wtoi(argv[7]);
     WNDCLASSW wc={}; wc.lpfnWndProc=proc; wc.hInstance=GetModuleHandle(0); wc.lpszClassName=L"CarPlaySystemMediaTest";
     RegisterClassW(&wc); window=CreateWindowW(wc.lpszClassName,L"CarPlay system media test",WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,100,980,620,0,0,wc.hInstance,0);
     if(!window) return 3;

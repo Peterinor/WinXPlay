@@ -2,6 +2,9 @@
 #include "video_dshow.h"
 #include "../common/video_queue.h"
 #include "../common/diagnostics.h"
+#if WINXPLAY_ENABLE_LOGS
+#include "../common/report_worker.h"
+#endif
 #include <streams.h>
 #include <sstream>
 #include <algorithm>
@@ -29,36 +32,78 @@ struct State {
     std::string error;
     LONG supplied;
     unsigned submitted, messages, maxSample;
+    U64 enqueued, nonqueued, waitMs;
+    mutable unsigned queuePeak;
+    mutable DWORD queueAgeMax, waitMax, supplyGapMax;
+    DWORD suppliedAt;
     int drawn,dropped;
     DWORD qualityResult;
     REFERENCE_TIME lastSampleTime;
     unsigned clockedSamples;
-    unsigned width,height;
+    unsigned width,height,maxFPS;
     HWND owner;
     bool rgbTest;
     DWORD lastTrace;
     std::string lastStage;
-    State(HWND w,unsigned x,unsigned y,bool rgb):stop(0),ready(0),supplied(0),submitted(0),messages(0),maxSample(0),drawn(-1),dropped(-1),qualityResult(E_NOINTERFACE),lastSampleTime(0),clockedSamples(0),width(x),height(y),owner(w),rgbTest(rgb),lastTrace(0){
+#if WINXPLAY_ENABLE_LOGS
+    ReportWorker reports;
+    static void writeReport(const Value &v,void *context){
+        State &s=*(State*)context;
+        const std::string &stage=v.at("stage").string;
+        // Only this writer touches lastStage/lastTrace; never block the renderer
+        // window/message thread on diagnostic storage or its trace mutex.
+        if(s.lastStage!=stage || DWORD(GetTickCount()-s.lastTrace)>=10000){
+            std::ostringstream detail;detail<<stage<<" samples_supplied="<<v.at("samples_supplied").integer
+                <<" queued="<<v.at("queued_frames").integer<<" width="<<v.at("width").integer<<" height="<<v.at("height").integer
+                <<" received="<<v.at("samples_received").integer
+                <<" drawn="<<(v.dict.count("renderer_frames_drawn")?I64(v.at("renderer_frames_drawn").integer):I64(-1))
+                <<" dropped="<<(v.dict.count("renderer_frames_dropped")?I64(v.at("renderer_frames_dropped").integer):I64(-1))
+                <<" messages="<<v.at("window_messages_processed").integer
+                <<" free_phys="<<v.at("free_physical_bytes").integer<<" free_virtual="<<v.at("free_virtual_bytes").integer
+                <<" reports_dropped="<<v.at("diagnostic_reports_dropped").integer
+                <<" reports_failed="<<v.at("diagnostic_reports_failed").integer;
+            if(v.dict.count("error"))detail<<" error="<<v.at("error").string;
+            diagnosticEvent("VIDEO_GRAPH",detail.str());s.lastStage=stage;s.lastTrace=GetTickCount();
+        }
+        writeDiagnosticFile(executableDirectory()+L"/video-backend.plist",xmlPlist(v));
+    }
+#endif
+    State(HWND w,unsigned x,unsigned y,unsigned fps,bool rgb):stop(0),ready(0),supplied(0),submitted(0),messages(0),maxSample(0),drawn(-1),dropped(-1),qualityResult(E_NOINTERFACE),lastSampleTime(0),clockedSamples(0),width(x),height(y),maxFPS(fps),owner(w),rgbTest(rgb),lastTrace(0)
+#if WINXPLAY_ENABLE_LOGS
+        ,reports(writeReport,this)
+#endif
+    {
+        require(maxFPS>=1 && maxFPS<=60,"Invalid video frame rate");
+        enqueued=nonqueued=waitMs=0;queuePeak=0;queueAgeMax=waitMax=supplyGapMax=suppliedAt=0;
         InitializeCriticalSection(&mutex);
         stop=CreateEventW(0,TRUE,FALSE,0);ready=CreateEventW(0,FALSE,FALSE,0);
         if(!stop||!ready){if(stop)CloseHandle(stop);if(ready)CloseHandle(ready);DeleteCriticalSection(&mutex);throw std::runtime_error("Video events failed");}
     }
-    ~State(){CloseHandle(stop);CloseHandle(ready);DeleteCriticalSection(&mutex);}
+    ~State(){
+#if WINXPLAY_ENABLE_LOGS
+        reports.flush();
+#endif
+        CloseHandle(stop);CloseHandle(ready);DeleteCriticalSection(&mutex);
+    }
     bool stopped() const{return WaitForSingleObject(stop,0)==WAIT_OBJECT_0;}
     bool take(VideoQueue::Sample &out){
         HANDLE events[]={stop,ready};
         for(;;){
             if(stopped())return false;
-            {Lock lock(mutex);if(queue.pop(out))return true;}
+            {Lock lock(mutex);if(queue.pop(out)){
+                queueAgeMax=std::max(queueAgeMax,DWORD(GetTickCount()-out.queuedAt));return true;}}
             if(WaitForMultipleObjects(2,events,FALSE,INFINITE)==WAIT_OBJECT_0)return false;
         }
     }
     void report(const char *stage){
         Value v=Value::dictionary();v.dict["backend"]=Value::str("wince_directshow");
         v.dict["stage"]=Value::str(stage);v.dict["width"]=Value::num(width);v.dict["height"]=Value::num(height);
+        v.dict["max_fps"]=Value::num(maxFPS);
+        v.dict["sample_duration_100ns"]=Value::num(10000000/maxFPS);
         v.dict["samples_supplied"]=Value::num(InterlockedCompareExchange(&supplied,0,0));
         v.dict["window_messages_processed"]=Value::num(messages);
         v.dict["renderer_statistics_result"]=Value::num(qualityResult);
+        v.dict["renderer_statistics_verified"]=Value::flag(false);
         if(drawn>=0)v.dict["renderer_frames_drawn"]=Value::num(drawn);
         if(dropped>=0)v.dict["renderer_frames_dropped"]=Value::num(dropped);
         v.dict["physical_display_verified"]=Value::flag(false);
@@ -70,15 +115,9 @@ struct State {
         MEMORYSTATUS memory={0};memory.dwLength=sizeof(memory);GlobalMemoryStatus(&memory);
         v.dict["free_physical_bytes"]=Value::num(memory.dwAvailPhys);
         v.dict["free_virtual_bytes"]=Value::num(memory.dwAvailVirtual);
-        if(lastStage!=stage || DWORD(GetTickCount()-lastTrace)>=10000){
-            std::ostringstream detail;detail<<stage<<" samples_supplied="<<v.at("samples_supplied").integer
-                <<" queued="<<v.at("queued_frames").integer<<" width="<<width<<" height="<<height
-                <<" received="<<v.at("samples_received").integer<<" drawn="<<drawn<<" dropped="<<dropped<<" messages="<<messages
-                <<" free_phys="<<memory.dwAvailPhys<<" free_virtual="<<memory.dwAvailVirtual;
-            if(v.dict.count("error"))detail<<" error="<<v.at("error").string;
-            diagnosticEvent("VIDEO_GRAPH",detail.str());lastStage=stage;lastTrace=GetTickCount();
-        }
-        try{writeDiagnosticFile(executableDirectory()+L"/video-backend.plist",xmlPlist(v));}catch(...){}
+#if WINXPLAY_ENABLE_LOGS
+        try{reports.submit(v);}catch(...){}
+#endif
     }
 };
 // The renderer creates windows on the graph thread. Pump this thread's queue,
@@ -134,7 +173,7 @@ class Stream:public CSourceStream {
         mt->InitMediaType();mt->SetType(&MEDIATYPE_Video);mt->SetSubtype(s_.rgbTest?&MEDIASUBTYPE_RGB565:&H264Type);mt->SetFormatType(&FORMAT_VideoInfo);
         unsigned size=sizeof(VIDEOINFOHEADER)+(s_.rgbTest?3*sizeof(DWORD):0);
         VIDEOINFOHEADER *v=(VIDEOINFOHEADER*)mt->AllocFormatBuffer(size);if(!v)return E_OUTOFMEMORY;
-        ZeroMemory(v,size);v->AvgTimePerFrame=10000000/30;v->bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+        ZeroMemory(v,size);v->AvgTimePerFrame=10000000/s_.maxFPS;v->bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
         v->bmiHeader.biWidth=s_.width;v->bmiHeader.biHeight=s_.height;v->bmiHeader.biPlanes=1;
         v->bmiHeader.biBitCount=s_.rgbTest?16:24;v->bmiHeader.biCompression=s_.rgbTest?BI_BITFIELDS:0x34363248;
         v->bmiHeader.biSizeImage=s_.rgbTest?s_.width*s_.height*2:VideoQueue::MaxSample;
@@ -162,10 +201,12 @@ class Stream:public CSourceStream {
             bool clocked=SUCCEEDED(m_pFilter->GetState(0,&state)) && state==State_Running &&
                 SUCCEEDED(m_pFilter->StreamTime(now));
             if(clocked && now.GetUnits()>t)t=now.GetUnits();
-            REFERENCE_TIME end=t+10000000/30;nextTime_=end;
+            REFERENCE_TIME end=t+10000000/s_.maxFPS;nextTime_=end;
             sample->SetTime(&t,&end);sample->SetSyncPoint(frame.key);sample->SetDiscontinuity(sequence_==0);sample->SetPreroll(FALSE);
-            {Lock lock(s_.mutex);s_.lastSampleTime=t;if(clocked)++s_.clockedSamples;}
-            ++sequence_;InterlockedIncrement(&s_.supplied);return S_OK;
+            {Lock lock(s_.mutex);s_.lastSampleTime=t;if(clocked)++s_.clockedSamples;
+                DWORD tick=GetTickCount();if(sequence_)s_.supplyGapMax=std::max(s_.supplyGapMax,DWORD(tick-s_.suppliedAt));
+                s_.suppliedAt=tick;InterlockedIncrement(&s_.supplied);}
+            ++sequence_;return S_OK;
         }catch(const std::exception &e){Lock lock(s_.mutex);s_.error=e.what();SetEvent(s_.stop);return E_FAIL;}
     }
 };
@@ -259,7 +300,7 @@ DWORD WINAPI worker(void *p){
 class Pipeline:public VideoPipeline {
     State state_;HANDLE thread_;
   public:
-    Pipeline(HWND owner,unsigned w,unsigned h,bool rgb=false):state_(owner,w,h,rgb),thread_(0){
+    Pipeline(HWND owner,unsigned w,unsigned h,unsigned maxFPS,bool rgb=false):state_(owner,w,h,maxFPS,rgb),thread_(0){
         require(owner&&IsWindow(owner),"DirectShow needs a live display window");
         if(!g_hInst)g_hInst=GetModuleHandleW(0);
         thread_=CreateThread(0,0,worker,&state_,0,0);require(thread_!=0,"Video worker failed");
@@ -267,29 +308,56 @@ class Pipeline:public VideoPipeline {
     ~Pipeline(){finish();CloseHandle(thread_);}
     void submit(const Bytes &b,U64){
         require(b.size()<=VideoQueue::MaxSample,"Video access unit limit");
-        DWORD start=GetTickCount();
+        DWORD start=GetTickCount();bool waited=false;
         for(;;){
             {Lock lock(state_.mutex);require(state_.error.empty(),state_.error.c_str());
                 require(!state_.stopped(),"Video pipeline closed");
                 if(state_.queue.capacityFor(b.size())){
                     if(!state_.rgbTest && state_.submitted<8)describeVideoPacket(b,state_.submitted);
-                    if(state_.rgbTest){require(b.size()==state_.width*state_.height*2,"RGB test frame size");state_.queue.pushRaw(b);}
-                    else state_.queue.push(b);
+                    bool queued=true;
+                    if(state_.rgbTest){require(b.size()==state_.width*state_.height*2,"RGB test frame size");state_.queue.pushRaw(b,GetTickCount());}
+                    else queued=state_.queue.push(b,GetTickCount());
+                    if(queued)++state_.enqueued;else ++state_.nonqueued;
+                    state_.queuePeak=std::max(state_.queuePeak,unsigned(state_.queue.size()));
+                    if(waited){DWORD elapsed=GetTickCount()-start;state_.waitMs+=elapsed;state_.waitMax=std::max(state_.waitMax,elapsed);}
                     ++state_.submitted;state_.maxSample=std::max(state_.maxSample,unsigned(b.size()));
                     SetEvent(state_.ready);return;
                 }
             }
-            require(GetTickCount()-start<500,"Video decoder stalled; queue remains bounded");
+            waited=true;
+            if(GetTickCount()-start>=500){Lock lock(state_.mutex);DWORD elapsed=GetTickCount()-start;
+                state_.waitMs+=elapsed;state_.waitMax=std::max(state_.waitMax,elapsed);
+                throw std::runtime_error("Video decoder stalled; queue remains bounded");}
             Sleep(2);
         }
     }
-    void finish(){SetEvent(state_.stop);WaitForSingleObject(thread_,INFINITE);}
+    void finish(){SetEvent(state_.stop);WaitForSingleObject(thread_,INFINITE);
+#if WINXPLAY_ENABLE_LOGS
+        state_.reports.flush(); // Preserve the completed snapshot before returning.
+#endif
+    }
     unsigned frames() const{return unsigned(InterlockedCompareExchange(const_cast<LONG*>(&state_.supplied),0,0));}
+    Value metrics() const {
+        Lock lock(state_.mutex);Value v=Value::dictionary();DWORD now=GetTickCount();
+        v.dict["max_fps"]=Value::num(state_.maxFPS);
+        v.dict["supplied"]=Value::num(frames()); // Source samples, NOT decoded/displayed frames.
+        v.dict["enqueued"]=Value::num(state_.enqueued);
+        v.dict["nonqueued"]=Value::num(state_.nonqueued);
+        v.dict["q_frames"]=Value::num(state_.queue.size());v.dict["q_bytes"]=Value::num(state_.queue.bytes());
+        v.dict["q_peak"]=Value::num(state_.queuePeak);
+        v.dict["q_age_ms"]=Value::num(state_.queue.oldestAge(now));
+        v.dict["q_age_max_ms"]=Value::num(state_.queueAgeMax);
+        v.dict["wait_ms_total"]=Value::num(state_.waitMs);v.dict["wait_max_ms"]=Value::num(state_.waitMax);
+        v.dict["supply_gap_max_ms"]=Value::num(state_.supplyGapMax);
+        v.dict["supply_idle_ms"]=Value::num(frames()?DWORD(now-state_.suppliedAt):0);
+        state_.queuePeak=unsigned(state_.queue.size());state_.queueAgeMax=state_.waitMax=state_.supplyGapMax=0;
+        return v;
+    }
     void checkStatus() const {Lock lock(state_.mutex);require(state_.error.empty(),state_.error.c_str());}
 };
 } // namespace
-VideoPipeline *createCeSystemVideo(HWND owner,unsigned w,unsigned h){return new Pipeline(owner,w,h);}
+VideoPipeline *createCeSystemVideo(HWND owner,unsigned w,unsigned h,unsigned maxFPS){return new Pipeline(owner,w,h,maxFPS);}
 #ifdef CARPLAY_DSHOW_TEST
-VideoPipeline *createCeRgbTestVideo(HWND owner,unsigned w,unsigned h){return new Pipeline(owner,w,h,true);}
+VideoPipeline *createCeRgbTestVideo(HWND owner,unsigned w,unsigned h,unsigned maxFPS){return new Pipeline(owner,w,h,maxFPS,true);}
 #endif
 } // namespace cp

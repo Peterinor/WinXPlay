@@ -1,11 +1,20 @@
 #include "portable.h"
-#include "../../platform/common/native_crypto.h"
-#include "../../platform/common/local_identity.h"
-#include "../../platform/wince/usb_driver/contract.h"
+#include "../common/native_crypto.h"
+#include "../common/local_identity.h"
+#include "usb_driver/contract.h"
 #include "usb_configuration.h"
 #include "usb_loader_probe.h"
 #include <sstream>
 namespace cp {
+void prepareWinceConnection(void (*status)(void *,const std::string &)) {
+    static bool ready=false;
+    if(!ready && environment(L"CARPLAY_PORTABLE",L"0")==L"1") {
+        if(status)status(0,"Preparing USB test; connect iPhone after startup");
+        preparePortableReceiver();
+        ready=true;
+    }
+}
+
 void preparePortableReceiver() {
     const std::wstring folder=executableDirectory();
     Value report=Value::dictionary();

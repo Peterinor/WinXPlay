@@ -2,11 +2,12 @@
 #include "log.h"
 #include "display.h"
 static HINSTANCE module;
-static LONG started=0,pendingBand=0,liveToken=0,liveBeat=0,transition=0;
+static LONG started=0,pendingBand=0,liveToken=0,liveBeat=0,transition=0,activationToken=0;
 static LONG physicalDown=0,heldKeys=0,deliveryFault=0,wantFactory=1;
 static HWND control=0,factory=0,target=0;
 static HANDLE child=0;
 static DWORD childPid=0,requestedAt=0,generation=0,phase=0;
+static BOOL faultReported=FALSE,faultCancelled=FALSE; // bridge worker only
 static DWORD contactOwner=0,keyOwner[256]={0}; // OEM UI thread: A / B / quarantine
 static BOOL layerHide=FALSE,layerSubmitted=FALSE;
 static DWORD layerStarted=0,layerLastResult=0xffffffff;
@@ -53,9 +54,13 @@ static void Clear(const WCHAR* reason) {
     }
     Restore();MrnLog(reason,generation,phase);target=0;phase=0;
 }
-static void Fault() {
+static void Fault(const WCHAR* reason) {
     InterlockedExchange(&deliveryFault,1);
-    if(MrnWindowPid(target,childPid))PostMessageW(target,WM_CANCELMODE,0,0);
+    if(!faultReported){MrnLog(L"INPUT_SUSPENDED",generation);MrnLog(reason);faultReported=TRUE;}
+    // Cancel once per failure, not every healthy timer tick. Retry only if the
+    // cancel itself could not be posted; do not resume before it is queued.
+    if(!faultCancelled && MrnWindowPid(target,childPid))
+        faultCancelled=PostMessageW(target,WM_CANCELMODE,0,0);
 }
 static BOOL Responsive(HWND h) {
     DWORD_PTR result=0;
@@ -73,20 +78,55 @@ extern "C" __declspec(dllexport) BOOL WINAPI MrnOnMessage(HWND h,UINT msg,WPARAM
     if(msg==WM_TIMER && wp==MRN_LAYER_TIMER && h==factory){LayerStep(h);return TRUE;}
     // These private messages stay entirely inside the HMI process.
     if((msg==MRN_HIDE_A || msg==MRN_SHOW_A) && control && (HWND)lp==control && h==factory) {
-        if(msg==MRN_HIDE_A && wp==DWORD(Read(&liveToken)) && !Read(&wantFactory)){LayerRequest(h,TRUE);ShowWindow(h,SW_HIDE);}
+        if(msg==MRN_HIDE_A && wp==DWORD(Read(&activationToken)) && !Read(&wantFactory)){LayerRequest(h,TRUE);ShowWindow(h,SW_HIDE);}
         if(msg==MRN_SHOW_A && Read(&wantFactory)){LayerRequest(h,FALSE);ShowWindow(h,SW_SHOW);SetWindowPos(h,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW);SetForegroundWindow(h);InvalidateRect(h,0,TRUE);}
         return TRUE;
     }
     UINT touch=MrnTouchMessage(msg);
+    UINT rawKey=msg==0x8000?MrnRawVirtualKey(wp):0;
+    BOOL step=msg==0x8000 && MrnTrackStep(wp);
     BOOL key=(msg==WM_KEYDOWN || msg==WM_KEYUP) && MrnKeyAllowed(wp);
-    if(!touch && !key)return FALSE;
+    if(!touch && !key && !rawKey && !step && msg!=0x8000)return FALSE;
     DWORD pid=0;WCHAR title[40];title[0]=0;
     if(!GetWindowThreadProcessId(h,&pid) || pid!=GetCurrentProcessId() ||
        !GetWindowTextW(h,title,40) || !MrnEqual(title,MRN_A_TARGET))return FALSE;
+#if WINXPLAY_ENABLE_LOGS
+    // Trace unmapped raw events too. Never perform file I/O on the OEM UI thread.
+    if(msg==0x8000 && control)PostMessageW(control,MRN_RAW_KEY_TRACE,wp,lp);
+#endif
+    if(!touch && !key && !rawKey && !step)return FALSE;
+    // Read the shared timestamp before sampling now: the worker may update it
+    // between calls, which must not look like an unsigned timeout wraparound.
+    DWORD beat=DWORD(Read(&liveBeat));
     BOOL live=Read(&liveToken)!=0 && !Read(&deliveryFault) &&
-        DWORD(GetTickCount()-DWORD(Read(&liveBeat)))<MRN_UI_TIMEOUT;
+        DWORD(GetTickCount()-beat)<MRN_UI_TIMEOUT;
     if(!live && Read(&liveToken))InterlockedExchange(&deliveryFault,1);
     BOOL quarantine=Read(&transition) || !Read(&wantFactory);
+    if(step){
+        if(live){
+            int delta=(short)LOWORD(lp),count=delta<0?-delta:delta;
+            UINT vk=MrnStepVirtualKey(lp);
+            // Bound a malformed/accumulated packet's work on the OEM UI thread.
+            if(count>16)count=16;
+            for(int i=0;i<count;++i){
+                if(!QueueInput(MRN_KEY_DOWN,vk,0) || !QueueInput(MRN_KEY_UP,vk,0))break;
+            }
+        }
+        return live||quarantine;
+    }
+    if(rawKey){
+        // action 0 is the original short activation path (also used by BAND).
+        // Do not guess long/repeat/release timing: emit one complete HID click.
+        if(live && lp==0){
+            if(QueueInput(MRN_KEY_DOWN,rawKey,0))QueueInput(MRN_KEY_UP,rawKey,0);
+        }
+        return live||quarantine;
+    }
+#if WINXPLAY_ENABLE_LOGS
+    // Keep disk I/O off the OEM input thread; trace down/up only, not moves.
+    if(control && (msg==WM_LBUTTONDOWN || msg==WM_LBUTTONUP))
+        PostMessageW(control,MRN_TOUCH_TRACE,MAKELONG(msg,(live?1:0)|(quarantine?2:0)),lp);
+#endif
     if(touch) {
         POINT pt={(short)LOWORD(lp),(short)HIWORD(lp)};
         BOOL positioned=ClientToScreen(h,&pt);
@@ -124,6 +164,10 @@ static void TryActive() {
     if(!IsWindowVisible(b))return;
     PostMessageW(b,WM_SHOWWINDOW,TRUE,0);
     phase=2;InterlockedExchange(&liveBeat,GetTickCount());
+    // Input recovery changes liveToken to reject old queued gestures, but must
+    // not invalidate this activation's already queued HMI layer handoff.
+    InterlockedExchange(&activationToken,generation);
+    faultReported=FALSE;faultCancelled=FALSE;
     InterlockedExchange(&deliveryFault,0);InterlockedExchange(&liveToken,generation);
     InterlockedExchange(&transition,0);InterlockedExchange(&wantFactory,0);
     if(!PostMessageW(factory,MRN_HIDE_A,generation,(LPARAM)control)){Clear(L"HIDE_POST_FAILED");return;}
@@ -158,6 +202,13 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK MrnControlMessage(HWND h,UINT 
         }
         return 0;
     }
+    if(msg==MRN_TOUCH_TRACE){MrnLog(L"TOUCH_SOURCE msg flags xy",LOWORD(wp),HIWORD(wp),DWORD(lp));return 0;}
+    if(msg==MRN_RAW_KEY_TRACE){
+        if(wp>=0x32 && wp<=0x37)
+            MrnLog(L"RAW_STEP id delta virtual",DWORD(wp),DWORD((short)LOWORD(lp)),MrnTrackStep(wp)?MrnStepVirtualKey(lp):0,TRUE);
+        else MrnLog(L"RAW_KEY id action virtual",DWORD(wp),DWORD(lp),MrnRawVirtualKey(wp));
+        return 0;
+    }
     if(msg>=MRN_DOWN && msg<=MRN_KEY_UP) {
         // Internal generation rejects queued events from a prior BAND session.
         if(phase!=2 || HIWORD(wp)!=DWORD(Read(&liveToken)) || Read(&deliveryFault) ||
@@ -165,11 +216,13 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK MrnControlMessage(HWND h,UINT 
         UINT native;WPARAM keys=LOWORD(wp);
         if(msg<=MRN_UP) {
             POINT pt={(short)LOWORD(lp),(short)HIWORD(lp)};
-            if(!ScreenToClient(target,&pt)){Fault();return 0;}
+            if(!ScreenToClient(target,&pt)){Fault(L"INPUT_COORDINATE_FAILED");return 0;}
             native=msg==MRN_DOWN?WM_LBUTTONDOWN:msg==MRN_MOVE?WM_MOUSEMOVE:WM_LBUTTONUP;
             lp=MAKELPARAM(pt.x,pt.y);
         }else native=msg==MRN_KEY_DOWN?WM_KEYDOWN:WM_KEYUP;
-        if(!PostMessageW(target,native,keys,lp))Fault();
+        BOOL posted=PostMessageW(target,native,keys,lp);
+        if(msg==MRN_DOWN || msg==MRN_UP)MrnLog(L"TOUCH_FORWARD msg ok xy",native,posted,DWORD(lp));
+        if(!posted)Fault(L"INPUT_POST_FAILED");
         return 0;
     }
     if(msg==WM_TIMER && wp==MRN_TIMER) {
@@ -182,14 +235,31 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK MrnControlMessage(HWND h,UINT 
                     TryActive();
                     if(phase==1 && DWORD(GetTickCount()-requestedAt)>=MRN_START_TIMEOUT)Clear(L"B_WINDOW_NOT_READY");
                 }else if(!MrnWindowPid(target,childPid) || !IsWindowVisible(target))Clear(L"B_WINDOW_HIDDEN_OR_CLOSED");
-                else if(!Responsive(target))Fault();
+                else if(!Responsive(target)) {
+                    // A single 100 ms probe miss can be ordinary UI scheduling.
+                    // Keep forwarding until the existing heartbeat deadline;
+                    // never lengthen the blocking probe on the input worker.
+                    if(DWORD(GetTickCount()-DWORD(Read(&liveBeat)))>=MRN_UI_TIMEOUT)
+                        Fault(L"INPUT_RESPONSE_TIMEOUT");
+                }
                 else {
                     InterlockedExchange(&liveBeat,GetTickCount());
-                    if(Read(&deliveryFault))PostMessageW(target,WM_CANCELMODE,0,0);
+                    if(Read(&deliveryFault)) {
+                        Fault(L"INPUT_HEARTBEAT_OR_QUEUE_FAILED");
+                        // Discard the failed gesture completely, including held
+                        // keys; only a new gesture may reach the recovered UI.
+                        if(faultCancelled && !Read(&physicalDown) && !Read(&heldKeys)) {
+                            generation=(generation+1)&65535;if(!generation)generation=1;
+                            InterlockedExchange(&liveToken,generation);
+                            InterlockedExchange(&deliveryFault,0);
+                            faultReported=FALSE;faultCancelled=FALSE;
+                            MrnLog(L"INPUT_RECOVERED",generation);
+                        }
+                    }
                 }
             }else MrnLog(L"B_PROCESS_WAIT_FAILED",childPid,child?GetLastError():ERROR_INVALID_HANDLE);
         }
-        if(mrnLog!=INVALID_HANDLE_VALUE)FlushFileBuffers(mrnLog);
+        MrnFlushLog();
         return 0;
     }
     return DefWindowProcW(h,msg,wp,lp);
@@ -205,6 +275,7 @@ static DWORD WINAPI Run(LPVOID) {
     {MSG m;while(GetMessageW(&m,0,0,0)>0){TranslateMessage(&m);DispatchMessageW(&m);}}
 done:
     Clear(L"BRIDGE_STOPPED");
+    MrnFlushLog(TRUE);
     if(mrnLog!=INVALID_HANDLE_VALUE){CloseHandle(mrnLog);mrnLog=INVALID_HANDLE_VALUE;}
     InterlockedExchange(&started,0);return 0;
 }

@@ -60,6 +60,7 @@ class LiveVideo {
 class AudioOutputBackend;
 class LiveAudio {
     AudioOutputBackend *p_;
+    bool aac_;
     LiveAudio(const LiveAudio &);
     LiveAudio &operator=(const LiveAudio &);
 
@@ -71,6 +72,7 @@ class LiveAudio {
     void reap();
     unsigned playedBytes() const;
     void pause(bool);
+    Value metrics() const;
 };
 #else
 class LiveAudio {

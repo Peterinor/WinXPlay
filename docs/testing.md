@@ -27,6 +27,8 @@ Windows 回归还会把 EXE、依赖 DLL 和合成身份复制到临时目录，
 
 ## 编译后 ARM 回归
 
+`./carplay/scripts/test-ce-aac.ps1` 用系统解码器替身覆盖 WinCE AAC 的 ADTS 封装、引用生命周期、队列上限、暂停清空和失败清理；不声称执行了原厂解码。`verify-contracts.ps1` 覆盖音频输入/输出四种开关组合及输出关闭时撤销 AAC 声明。实车启动还有一次不出声的原厂 AAC 解码自检，只有通过才声明能力。
+
 工具与跨模块测试在 `tests/`，使用 Unicorn 执行实际编译产物并模拟 OS API。部分测试使用外部 coredll.dll 的导入序号表，先按构建指南配置。
 
 ```powershell
@@ -46,5 +48,7 @@ USB 驱动回归先构建 CeMrn 与 CeGeneric，再运行 `test_usbmux_registrat
 产品回归覆盖本项目代码的行为与接口；原厂 PM/USBD 指令、hive 或录音机代码的研究验证在项目外保存。完整发现式运行前应准备对应构建和外部输入；默认结构检查不会把缺少这些条件误报为已通过硬件测试。
 
 ## 模拟器和实机
+
+`./carplay/scripts/test-mrn-microphone.ps1` 在桌面执行生产 MRN 麦克风适配，AVV0/waveIn 为替身；验证七种目标采样率、拆分输入的连续性、精确包长、2 秒非阻塞等待、单采集者、申请/打开/准备/启动失败清理与缓冲释放失败后的禁重开。配合 `carplay/tests/windows/input_integration.py` 检查 Home/媒体控制的加密事件、合成麦克风上行和 TEARDOWN。上述通过不替代真实电话、Siri 或回声消除验证。
 
 模拟器部署脚本在 `carplay/tests/wince/`，需要 Microsoft CoreCon 与用户自己的 WM5 模拟器环境。显式调用才会启动或部署客体程序。实车检查使用 [三个诊断入口](../carplay/tools/mrn/README.md)，每轮记录包哈希；物理效果由现场观察与日志分别确认。

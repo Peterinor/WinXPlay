@@ -23,6 +23,7 @@ class SystemVideo : public VideoPipeline {
         v.dict["decoder_surface_samples"]=Value::num(s.decoderSurfaces); v.dict["cpu_surface_samples"]=Value::num(s.cpuSamples);
         v.dict["submitted_packets"]=Value::num(s.submitted); v.dict["queued_bytes"]=Value::num(s.queuedBytes);
         v.dict["max_queue_bytes"]=Value::num(s.maxQueueBytes); v.dict["width"]=Value::num(s.width); v.dict["height"]=Value::num(s.height);
+        v.dict["max_fps"]=Value::num(s.maxFPS);
         v.dict["present_call_total_us"]=Value::num(s.totalPresentUs);
         // Output can be delayed inside MFT. These ages refer to the input that
         // triggered draining, not a timestamp-matched decoded frame.
@@ -32,9 +33,9 @@ class SystemVideo : public VideoPipeline {
         writeDiagnosticFile(executableDirectory()+L"/video-backend.plist",xmlPlist(v));
     }
   public:
-    SystemVideo(HWND window,VideoCallback f,void *ctx,unsigned w,unsigned h)
+    SystemVideo(HWND window,VideoCallback f,void *ctx,unsigned w,unsigned h,unsigned maxFPS)
         :handle_(0),callback_(f),context_(ctx),saved_(GetTickCount()) {
-        checkMf(cpMfCreate(window,w,h,frame,this,&handle_),"Cannot initialize system video decoder");
+        checkMf(cpMfCreate(window,w,h,maxFPS,frame,this,&handle_),"Cannot initialize system video decoder");
     }
     ~SystemVideo() { cpMfDestroy(handle_); }
     void submit(const Bytes &b,U64) {
@@ -45,7 +46,7 @@ class SystemVideo : public VideoPipeline {
     unsigned frames() const { CpMfStats s; cpMfStats(handle_,&s); return s.frames; }
 };
 }
-VideoPipeline *createSystemVideo(HWND window,VideoCallback cb,void *ctx,unsigned w,unsigned h) {
-    return new SystemVideo(window,cb,ctx,w,h);
+VideoPipeline *createSystemVideo(HWND window,VideoCallback cb,void *ctx,unsigned w,unsigned h,unsigned maxFPS) {
+    return new SystemVideo(window,cb,ctx,w,h,maxFPS);
 }
 }

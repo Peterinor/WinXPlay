@@ -164,7 +164,7 @@ struct VideoPacket {
 };
 class ScreenParser {
     Bytes pending_;
-    U64 counter_;
+    U64 counter_, received_, config_;
     Crypto &crypto_;
     Bytes key_;
     bool failed_;
@@ -173,8 +173,12 @@ class ScreenParser {
 
   public:
     ScreenParser(Crypto &c, const Bytes &key)
-        : counter_(0), crypto_(c), key_(key), failed_(false) {}
+        : counter_(0), received_(0), config_(0), crypto_(c), key_(key), failed_(false) {}
     std::vector<VideoPacket> feed(const Bytes &chunk);
+    U64 receivedFrames() const { return received_; }
+    U64 decryptedFrames() const { return counter_; }
+    U64 configurations() const { return config_; }
+    size_t pendingBytes() const { return pending_.size(); }
 };
 Bytes decryptAudio(Crypto &crypto, const Bytes &key, const Bytes &packet);
 Bytes microphonePacket(Crypto &crypto, const Bytes &key, const Bytes &pcm, U16 sequence,

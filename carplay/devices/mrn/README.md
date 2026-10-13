@@ -1,16 +1,18 @@
 # MRN 设备适配
 
-这里保存 MRN F3.21 的设备默认值、启动适配和音频实现。原厂接口及适用边界集中维护在 [MRN 设备说明](../../../docs/devices/mrn.md)，不在代码旁复制另一份研究时间线。
+这里仅保留设备参数、选择和已证实的固件差异。普通 WinCE 系统调用及其处理流程放在平台层，不能因为最早在 MRN 上验证就视为 MRN 私有实现。接口依据见 [MRN 设备说明](../../../docs/devices/mrn.md)。
 
-| 文件 | 维护职责 | 接口依据 |
-| --- | --- | --- |
-| profile.cpp | 分辨率、视频后端与滤镜 ID、显示名称及原车字体 | [设备配置](../../../docs/devices/mrn.md) |
-| wince.cpp | 启动准备、安装互斥、窗口策略与音频后端装配 | [设备配置](../../../docs/devices/mrn.md) |
-| usb_registration.h | F3.21 注册 API 空实现的受限回退 | [USB 注册与匹配](../../../docs/devices/mrn/usb.md) |
-| network_diagnostics.h | F3.21 NCM 注册路径及驱动文件的只读诊断 | [USB 与网络](../../../docs/devices/mrn/usb.md) |
-| audio_recovery.cpp | TTS 打开/写入失败后的退避重试、丢弃过期音频和诊断 | [音频输出](../../../docs/devices/mrn/audio.md) |
-| portable.cpp / portable.h | 内部运行、身份准备及 USB 启动装配 | [USB 与网络](../../../docs/devices/mrn/usb.md) |
-| usb_configuration.h / usb_loader_probe.h | 原厂 NCM 规则兼容、配置检查与驱动加载诊断 | [USB 注册与匹配](../../../docs/devices/mrn/usb.md) |
-| audio_output.cpp / audio_pcm.h | TTS 通道、共享 SSI 输出及有界 PCM 队列 | [音频输出](../../../docs/devices/mrn/audio.md) |
+| 文件 | 责任 |
+| --- | --- |
+| profile.cpp | 分辨率、帧率、后端与滤镜 ID、音频输入/输出开关、AAC DMO 选择、显示名称和字体 |
+| wince.cpp | 部署互斥约束、音频后端选择与能力说明 |
+| audio_route.cpp / audio_route.h | AVV0 私有 TTS 音源申请/释放，设备号及已验证缓冲参数 |
+| usb_registration.h | F3.21 USB 注册 API 的已知空实现检测 |
 
-触摸和原厂显示交接位于 [firmware/mrn](../../../firmware/mrn/README.md)，实时视频实现位于平台层。新增设备差异应放在相应适配中，不能把 OEM 地址、私有 IOCTL 或原厂窗口名称写入共享协议核心。
+共享实现：
+
+- [WinCE 启动](../../platform/wince/portable.cpp)：身份/配对、USB 注册与 NCM 准备。
+- [NCM 配置](../../platform/wince/usb_configuration.h)、[驱动加载检查](../../platform/wince/usb_loader_probe.h)、[网络诊断](../../platform/wince/network_diagnostics.h)和[注册表注册](../../platform/wince/usb_driver/registry_registration.h)。
+- [waveOut 混音](../../platform/wince/wave_mixer.cpp)、[音频重试](../../platform/wince/audio_recovery.cpp)和 [PCM 队列](../../platform/common/pcm_queue.h)。
+
+原厂触摸和显示交接位于 [firmware/mrn](../../../firmware/mrn/README.md)，实时视频在平台层。新增设备差异须有具体依据；不预先为普通 API 调用增加一套适配接口。

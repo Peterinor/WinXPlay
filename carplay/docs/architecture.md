@@ -10,7 +10,13 @@
 
 `devices/` 提供默认参数和必要的设备行为，例如 MRN USB 注册兼容、音源和字体配置。原厂 HMI 的桥接位于项目级 firmware/mrn，协议核心不感知固件地址。
 
-WinCE 应用通过 `devices/wince.h` 调用构建时选定的设备实现，平台源码不直接引用具体设备目录。Generic 的启动和窗口钩子为空，音频直接使用标准 wave；MRN 负责身份/USB 准备、安装互斥、窗口置顶策略和可恢复的 TTS 输出。DirectShow 的图构建留在平台层，滤镜标识留在设备 profile。
+分层按 `CarPlay → platform（WinCE / Windows / 后续 Linux）→ device / firmware` 组织。没有证据表明设备存在差异时，普通系统 API 的调用和处理流程直接归平台层，不添加设备回调或策略接口。Linux 暂无实现。
+
+WinCE 的身份/配对准备、USB 注册、NCM 规则检查与读回/回滚、驱动加载检查、网络地址校验和窗口初始化都在平台层。MRN 与 Generic 使用同一个启动入口；仍按 `CARPLAY_PORTABLE` 决定是否准备 USB。当前网络地址发现要求 IPv6 链路本地地址，属于现有媒体网络流程，与设备型号无关。
+
+音频的 waveOut 线程、缓冲提交、共享混音和失败重试在 `platform/wince/`，纯 PCM 转换及队列在 `platform/common/`。MRN 仅选择设备 1、缓冲和等待参数，并实现 AVV0 私有音源申请/释放；Generic 继续选择标准 wave 后端。DirectShow 的图构建留在平台层，分辨率、帧率和滤镜标识留在设备 profile。
+
+`devices/wince.h` 只负责实际设备选择和部署约束。USB 注册中已经证实的 F3.21 空实现检测留在设备层，注册表操作本身由平台执行。NCM 使用已有 usbcdcncm 驱动和已验证的匹配规则；共享实现不等于任意固件均已通过实机验证。
 
 `CARPLAY_CE_DSHOW` 只选择 DirectShow 媒体路径，不控制音源、USB 或部署策略。USB DLL 的 `WINXPLAY_DEVICE_MRN` 单独选择 F3.21 注册 API 空实现的兼容策略；通用构建只调用系统注册 API。ActivateDeviceEx、描述符长度检查和 bulk 传输属于 CE API/USB 通用实现，不因最初在 MRN 上验证就全部归为设备代码。
 
@@ -28,7 +34,7 @@ Windows 视频由 Media Foundation 解码、D3D11 呈现，AAC 由系统组件�
 
 能力由实际媒体后端提供。CE 不声明 AAC；不把已有消息接口表述为已获得真实触屏或车载话筒。
 
-DirectShow 视频队列有界，缓存 SPS/PPS 并等待 IDR；当前尚未完整恢复手机 PTS，不能宣称精确音画同步或完整定时呈现。MRN 音频适配对设备可恢复错误采用退避重开并丢弃过期数据；驱动调用自身永久阻塞不在该恢复保证范围内。
+DirectShow 视频队列有界，缓存 SPS/PPS 并等待 IDR；当前尚未完整恢复手机 PTS，不能宣称精确音画同步或完整定时呈现。WinCE 通用音频恢复对设备可恢复错误采用退避重开并丢弃过期数据；驱动调用自身永久阻塞不在该恢复保证范围内。
 
 ## 后续约束
 

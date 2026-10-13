@@ -29,7 +29,7 @@ mrn/
 
 BAND 等原厂已有手势和白名单按键释放后才激活。返回时停止输入转发、发送 `WM_CANCELMODE`、隐藏 WinXPlay 并恢复原厂；未结束的手势不改投原厂。DLL 使用标准 `WM_SHOWWINDOW` 通知主程序显隐状态。WinXPlay 取消输入时也释放自己持有的鼠标捕获。
 
-DLL 每 250ms 检查进程与窗口，使用 100ms 的 `WM_NULL / SendMessageTimeout` 检查响应；不要求应用发送心跳。窗口隐藏/消失或进程确认退出时恢复原厂。等待新窗口最多 8 秒；超时恢复原厂，不结束接收端进程。输入投递失败或响应超时停止本次转发并取消输入，BAND 重新进入后恢复；不因此中断手机连接。响应检查成功不等于每条投递消息都已处理。
+DLL 每 250ms 检查进程与窗口，使用 100ms 的 `WM_NULL / SendMessageTimeout` 检查响应；不要求应用发送心跳。单次探测超时保留当前手势，距离最后一次成功响应达到已有 2 秒期限才暂停输入；投递失败仍立即暂停。窗口隐藏/消失或进程确认退出时恢复原厂。等待新窗口最多 8 秒；超时恢复原厂，不结束接收端进程。每次故障只成功投递一次取消输入。响应恢复且所有触点和按键已释放后，自动恢复新手势；过期排队输入被丢弃，不因此中断手机连接。取消消息投递失败时保持暂停并重试，避免半个手势残留。日志 `INPUT_SUSPENDED` 及原因标记暂停，`INPUT_RECOVERED` 标记恢复。响应检查成功不等于每条投递消息都已处理。触摸日志保留处理时刻、每秒批量写出，工作线程不再逐事件写盘或每 250ms 强制刷盘。
 
 只有原厂目标窗口的触摸和白名单标准键会被转发。音量/静音、其他原厂消息、倒车及电源相关消息继续原流程；仍不猜测 CAN 原始键值。不调用系统 SendInput，不向其他应用注入触摸。真实图层调用沿用原实现与固件指令核验。
 
@@ -44,6 +44,20 @@ python firmware/mrn/package.py
 ```
 
 通用 WinCE 可使用主程序构建脚本的 `-Generic`；同样不包含 MRN 输入客户端。两份构建脚本仍支持 `-NoLogs`，分别输出至原目录的 `-nologs` 版本。
+
+关闭主程序及桥接的全局运行日志时，使用以下流程（已有 HMI 补丁产物）：
+
+```powershell
+./firmware/mrn/build.ps1 -NoLogs
+./carplay/scripts/build-wince.ps1 -NoLogs
+$env:WINXPLAY_TEST_NO_LOGS='1'
+python tests/test_ab_interaction.py *> build/firmware/ab_bridge-nologs/verification.log
+python tests/test_hmi_layer.py *> build/firmware/ab_bridge-nologs/layer-tests.log
+Remove-Item Env:WINXPLAY_TEST_NO_LOGS
+python firmware/mrn/package.py --no-logs
+```
+
+此模式使用 `WINXPLAY_ENABLE_LOGS=0`，只发布无日志 EXE/DLL 到同一个 `winxplay_bridge_update` 目录，核对无日志 DLL 的测试记录和哈希，不重新发布 HMI 补丁。保留设备上的旧日志及文件更新工具的操作结果。
 
 `WinXPlay.exe` 和 `WinXPlayBridge.dll` 必须使用配套版本。采用私有握手的旧 DLL 与当前主程序不兼容。桥接更新包只更新这两个文件，保留 USB 驱动、认证、配对和配置；不覆盖 HMI、不自动终止进程或重启。已加载 DLL 需要退出原厂 HMI 后才能替换，更新后重启车机加载新文件。
 

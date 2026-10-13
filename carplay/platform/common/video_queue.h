@@ -7,7 +7,7 @@ namespace cp {
 // codec configuration. Never drop a reference frame and continue its GOP.
 class VideoQueue {
   public:
-    struct Sample { Bytes bytes; bool key; Sample() : key(false) {} };
+    struct Sample { Bytes bytes; bool key; U32 queuedAt; Sample() : key(false),queuedAt(0) {} };
     enum { MaxSample = 2 * 1024 * 1024, MaxBytes = 4 * 1024 * 1024, MaxFrames = 8 };
   private:
     std::deque<Sample> samples_;
@@ -23,12 +23,12 @@ class VideoQueue {
     }
   public:
     VideoQueue() : bytes_(0), started_(false) {}
-    void pushRaw(const Bytes &b) {
+    void pushRaw(const Bytes &b,U32 now=0) {
         require(!b.empty() && b.size()<=MaxSample && samples_.size()<MaxFrames &&
                 bytes_+b.size()<=MaxBytes,"Raw video queue limit");
-        Sample s;s.bytes=b;s.key=true;samples_.push_back(s);bytes_+=b.size();
+        Sample s;s.bytes=b;s.key=true;s.queuedAt=now;samples_.push_back(s);bytes_+=b.size();
     }
-    bool push(const Bytes &b) {
+    bool push(const Bytes &b,U32 now=0) {
         require(!b.empty() && b.size() <= MaxSample && prefix(b,0), "Invalid Annex-B access unit");
         bool picture=false, key=false;
         size_t at=0;
@@ -50,7 +50,7 @@ class VideoQueue {
         if (!picture) return false;
         if (!started_ && !key) return false;
         require(!sps_.empty() && !pps_.empty(), "H264 picture without parameter sets");
-        Sample sample;sample.key=key;
+        Sample sample;sample.key=key;sample.queuedAt=now;
         if (key) { sample.bytes=sps_; sample.bytes.insert(sample.bytes.end(),pps_.begin(),pps_.end()); }
         sample.bytes.insert(sample.bytes.end(),b.begin(),b.end());
         require(sample.bytes.size()<=MaxSample, "H264 sample limit");
@@ -65,6 +65,8 @@ class VideoQueue {
     }
     void clear() { samples_.clear();sps_.clear();pps_.clear();bytes_=0;started_=false; }
     size_t size() const { return samples_.size(); }
+    size_t bytes() const { return bytes_; }
+    U32 oldestAge(U32 now) const { return samples_.empty()?0:U32(now-samples_.front().queuedAt); }
     bool capacityFor(size_t n) const {
         return samples_.size()<MaxFrames && bytes_+n+sps_.size()+pps_.size()<=MaxBytes;
     }

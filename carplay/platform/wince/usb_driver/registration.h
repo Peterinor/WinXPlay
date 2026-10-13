@@ -6,6 +6,7 @@ static const WCHAR clientKey[]=L"Drivers\\USB\\ClientDrivers\\WinXPlayUsbMux";
 static const WCHAR matchKey[]=L"Drivers\\USB\\LoadClients\\1452\\Default\\255_254_2\\WinXPlayUsbMux";
 static const WCHAR bootstrapKey[]=L"Drivers\\USB\\LoadClients\\1452\\Default\\Default\\WinXPlayUsbMux";
 #include "../../../devices/usb_registration.h"
+#include "registry_registration.h"
 static USB_DRIVER_SETTINGS bootstrapSettings(){
     USB_DRIVER_SETTINGS s=settings();
     s.dwInterfaceClass=s.dwInterfaceSubClass=s.dwInterfaceProtocol=USB_NO_INFO;

@@ -1,0 +1,24 @@
+FILEOPS_V2
+# WinXPlay diagnostic files only. DELETE retains a verified backup on USB.
+# Keep all programs, DLLs, carplay.plist, identity and pairing records.
+DELETE|\NAND_USER\WinXPlay\A_BRIDGE.log
+DELETE|\NAND_USER\WinXPlay\B_INTERACTION.log
+DELETE|\NAND_USER\WinXPlay\connection-trace.log
+DELETE|\NAND_USER\WinXPlay\connection-trace.previous.log
+DELETE|\NAND_USER\WinXPlay\crash.log
+DELETE|\NAND_USER\WinXPlay\usb-driver.log
+DELETE|\NAND_USER\WinXPlay\streaming-diagnostics.plist
+DELETE|\NAND_USER\WinXPlay\auto-connect.plist
+DELETE|\NAND_USER\WinXPlay\last-error.plist
+DELETE|\NAND_USER\WinXPlay\video-backend.plist
+DELETE|\NAND_USER\WinXPlay\audio-output.plist
+DELETE|\NAND_USER\WinXPlay\audio-recovery.plist
+DELETE|\NAND_USER\WinXPlay\audio-input.plist
+DELETE|\NAND_USER\WinXPlay\portable-startup.plist
+DELETE|\NAND_USER\WinXPlay\connection-stage.plist
+DELETE|\NAND_USER\WinXPlay\session-usb.plist
+DELETE|\NAND_USER\WinXPlay\receiver-listener.plist
+DELETE|\NAND_USER\WinXPlay\startup-error.plist
+DELETE|\NAND_USER\WinXPlay\media-backends.plist
+DELETE|\NAND_USER\WinXPlay\host-events.plist
+DELETE|\NAND_USER\WinXPlay\usb-connection.plist

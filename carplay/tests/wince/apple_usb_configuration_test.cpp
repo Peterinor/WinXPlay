@@ -34,7 +34,7 @@ static LONG fakeClose(HKEY key){check(key==(HKEY)123);++closes;return ERROR_SUCC
 #define RegQueryValueExW fakeQuery
 #define RegSetValueExW fakeSet
 #define RegCloseKey fakeClose
-#include "../../devices/mrn/usb_configuration.h"
+#include "../../platform/wince/usb_configuration.h"
 static int loaderFailure;static DWORD loaderError;static unsigned loaderCalls,loaderReleases;
 static HMODULE fakeModule(LPCWSTR name){check(wcscmp(name,L"coredll.dll")==0);return loaderFailure==1?0:(HMODULE)11;}
 static HMODULE WINAPI fakeLoadDriver(LPCWSTR path){
@@ -54,7 +54,7 @@ static void fakeSetError(DWORD error){loaderError=error;}
 #define FreeLibrary fakeFree
 #define GetLastError fakeGetError
 #define SetLastError fakeSetError
-#include "../../devices/mrn/usb_loader_probe.h"
+#include "../../platform/wince/usb_loader_probe.h"
 static cp::AppleUsbConfiguration run(int fail,DWORD initial=2){
     failure=fail;value=initial;reads=writes=closes=0;
     cp::AppleUsbConfiguration result;cp::prepareAppleUsbConfiguration(result);

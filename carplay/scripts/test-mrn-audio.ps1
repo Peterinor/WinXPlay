@@ -16,7 +16,7 @@ try {
   if($LASTEXITCODE -ne 0){throw 'MRN audio test compile failed'}
   & ./mrn_audio_test.exe
   if($LASTEXITCODE -ne 0){throw 'MRN audio test failed'}
-  & "$taskVc/bin/amd64/cl.exe" /nologo /EHsc /MT /O2 /DUNICODE /D_UNICODE /DWINXPLAY_AUDIO_RECOVERY_HOST_TEST /Feaudio_recovery_test.exe "$taskRoot/tests/wince/audio_output_smoke.cpp" "$taskRoot/devices/mrn/audio_recovery.cpp" "$taskRoot/platform/wince/audio.cpp" "$taskRoot/core/protocol.cpp" "$taskRoot/core/plist.cpp"
+  & "$taskVc/bin/amd64/cl.exe" /nologo /EHsc /MT /O2 /DUNICODE /D_UNICODE /DWINXPLAY_AUDIO_RECOVERY_HOST_TEST /Feaudio_recovery_test.exe "$taskRoot/tests/wince/audio_output_smoke.cpp" "$taskRoot/platform/wince/audio_recovery.cpp" "$taskRoot/platform/wince/audio.cpp" "$taskRoot/core/protocol.cpp" "$taskRoot/core/plist.cpp"
   if($LASTEXITCODE -ne 0){throw 'MRN audio recovery test compile failed'}
   & ./audio_recovery_test.exe
   if($LASTEXITCODE -ne 0){throw 'MRN audio recovery test failed'}

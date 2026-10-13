@@ -13,8 +13,7 @@ AudioOutputBackend *createAudioOutputBackend(const std::wstring &name, unsigned 
 }
 AudioInputBackend *createAudioInputBackend(const std::wstring &name, unsigned rate,
                                            unsigned channels, unsigned samples) {
-    require(name == L"wave", "Unknown audio input backend");
-    return createWaveInput(rate, channels, samples);
+    return createDeviceAudioInput(name,rate,channels,samples);
 }
 FramePresenter *createFramePresenter(const std::wstring &name) {
     require(name == L"gdi", "Selected presenter is not compiled");
@@ -30,6 +29,10 @@ Value mediaBackendConfiguration() {
         Value::str(utf8(environment(L"CARPLAY_AUDIO_IN_BACKEND", L"wave")));
     v.dict["presenter"] = Value::str(utf8(environment(L"CARPLAY_PRESENTER", L"gdi")));
     describeDeviceMedia(v);
+    bool output=environment(L"CARPLAY_AUDIO_OUTPUT",deviceProfile().audio.output?L"1":L"0")!=L"0";
+    v.dict["video_only"]=Value::flag(!output);
+    v.dict["audio_output_enabled"]=Value::flag(output);
+    v.dict["microphone_enabled"]=Value::flag(environment(L"CARPLAY_MICROPHONE",deviceProfile().audio.input?L"1":L"0")!=L"0");
     v.dict["hardware_rendering_verified"] = Value::flag(false);
     return v;
 }

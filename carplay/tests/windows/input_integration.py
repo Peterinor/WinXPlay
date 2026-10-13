@@ -76,6 +76,14 @@ def run():
             assert [(v['uuid'],v['hidReport'][0]) for v in (event.read(),event.read())]==[('2a2a2a2c',3),('2a2a2a2c',0)]
             assert send(0x319,0,11<<16)==1
             assert event.read()['hidReport']==b'\x04';assert event.read()['hidReport']==b'\x00'
+            # MRN MODE emits standard Home; SEEK emits standard media keys.
+            send(0x100,0x24);send(0x101,0x24)
+            home,neutral=event.read(),event.read()
+            assert home['uuid']=='2a2a2a2b' and home['hidReport'][0]==2 and neutral['hidReport'][0]==0
+            for key,index in ((0xb0,4),(0xb1,5),(0xb2,2),(0xb3,3)):
+                send(0x100,key);send(0x101,key)
+                pressed,released=event.read(),event.read()
+                assert pressed['uuid']=='2a2a2a2c' and pressed['hidReport']==bytes([index]) and released['hidReport']==b'\0'
             for key,index in ((0x75,1),(0x76,4)):
                 send(0x100,key);send(0x101,key)
                 assert event.read()['hidReport']==bytes([index]);assert event.read()['hidReport']==b'\0'

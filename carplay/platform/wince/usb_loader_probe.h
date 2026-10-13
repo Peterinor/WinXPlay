@@ -1,4 +1,4 @@
-// Probe our DLL with the loader API used by F3.21 USBD. Does not attach a device.
+// Probe a USB DLL with the CE driver loader. Does not attach a device.
 #ifndef WINXPLAY_USB_LOADER_PROBE_H
 #define WINXPLAY_USB_LOADER_PROBE_H
 namespace cp {

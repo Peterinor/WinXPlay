@@ -1,9 +1,9 @@
 // Inspect the existing preference; the USB bootstrap selects from live descriptors.
-// Included after Windows declarations; kept here, not in the generic USB driver.
-#ifndef WINXPLAY_MRN_USB_CONFIGURATION_H
-#define WINXPLAY_MRN_USB_CONFIGURATION_H
+// Included after Windows declarations; shared by CE receiver targets.
+#ifndef WINXPLAY_WINCE_USB_CONFIGURATION_H
+#define WINXPLAY_WINCE_USB_CONFIGURATION_H
 namespace cp {
-// Reuse the MRN's installed NCM miniport, only for Apple CDC/NCM interfaces.
+// Reuse the installed NCM miniport, only for Apple CDC/NCM interfaces.
 // Keep the OEM rule and its Comm/IP configuration unchanged.
 struct AppleNcmBinding {
     DWORD error,rollbackError;bool changed;const char *stage;

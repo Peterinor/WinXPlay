@@ -465,6 +465,7 @@ std::vector<VideoPacket> ScreenParser::feed(const Bytes &chunk) {
         p.type = pending_[4];
         Bytes body = slice(pending_, 128, n);
         if (p.type == 0) {
+            ++received_; // Complete encrypted video message, before authentication.
             require(n >= 16, "Short video ciphertext");
             try {
                 p.body = nalToAnnexB(
@@ -475,8 +476,10 @@ std::vector<VideoPacket> ScreenParser::feed(const Bytes &chunk) {
                 pending_.clear();
                 throw;
             }
-        } else if (p.type == 1)
+        } else if (p.type == 1) {
+            ++config_;
             p.body = body;
+        }
         // iPhone sends auxiliary screen messages between frames. They are bounded by
         // the same header length, but do not consume a video encryption nonce.
         if (p.type == 0 || p.type == 1)

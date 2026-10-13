@@ -26,4 +26,12 @@ try {
             if($LASTEXITCODE -ne 0){throw "System video integration failed: $taskW / $taskDelay"}
         }
     }
+    foreach($taskFps in @(20,25)){
+        $taskFile="test-800-${taskFps}fps.h264"
+        & $taskFfmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=800x480:rate=$taskFps" -frames:v 60 -c:v libx264 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -x264-params 'aud=1:bframes=0' -f h264 $taskFile
+        if($LASTEXITCODE -ne 0){throw 'Frame-rate fixture generation failed'}
+        & ./system_media_test.exe $taskFile "result-800-${taskFps}fps.json" 800 480 60 (1000/$taskFps) $taskFps
+        if($LASTEXITCODE -ne 0){throw "Configured frame-rate test failed: $taskFps"}
+        Get-Content "result-800-${taskFps}fps.json"
+    }
 }finally{Pop-Location}

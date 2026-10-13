@@ -1,4 +1,4 @@
-#include "../../devices/mrn/portable.h"
+#include "../../platform/wince/portable.h"
 #include "../../platform/common/native_crypto.h"
 #include "../../platform/common/local_identity.h"
 using namespace cp;
@@ -41,6 +41,7 @@ int WINAPI WinMain(HINSTANCE,HINSTANCE,LPWSTR,int){
         result.dict["critical_accessory_extension"]=Value::flag(true);
     }catch(const std::exception &e){result.dict["passed"]=Value::flag(false);result.dict["error"]=Value::str(e.what());}
     result.dict["usb_registration_stubbed"]=Value::flag(true);
+    result.dict["ncm_prerequisites_stubbed"]=Value::flag(true);
     result.dict["physical_iphone_verified"]=Value::flag(false);
     writeFile(root+L"/portable-smoke.plist",xmlPlist(result));
     return result.at("passed").boolean?0:1;

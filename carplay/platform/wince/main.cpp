@@ -10,6 +10,7 @@
 #include "../../devices/profile.h"
 #ifdef UNDER_CE
 #include "../../devices/wince.h"
+#include "portable.h"
 #endif
 #include <sstream>
 #include <algorithm>
@@ -88,7 +89,7 @@ DWORD listenImpl(void *) {
         require(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Winsock initialization failed");
         try {
 #ifdef UNDER_CE
-            prepareDeviceConnection(onStatus);
+            prepareWinceConnection(onStatus);
 #endif
             connectionStage("preparing_usb");
             Value usb = prepareUsbCarPlay();
@@ -229,8 +230,21 @@ LRESULT CALLBACK proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     RECT inputRect={0,0,0,0};
     if(window)inputRect=picture();
     EnterCriticalSection(&mutex);
+#if WINXPLAY_ENABLE_LOGS
+    bool inputReceiver=receiver!=0;
+#endif
     bool consumed=input.handle(h,msg,wp,lp,foregroundAllowed?receiver:0,inputRect);
     LeaveCriticalSection(&mutex);
+#if WINXPLAY_ENABLE_LOGS
+    if(msg==WM_LBUTTONDOWN || msg==WM_LBUTTONUP){
+        std::ostringstream detail;
+        detail<<"msg="<<msg<<" x="<<short(LOWORD(lp))<<" y="<<short(HIWORD(lp))
+              <<" foreground="<<foregroundAllowed<<" receiver="<<inputReceiver
+              <<" rect="<<inputRect.left<<","<<inputRect.top<<","<<inputRect.right<<","<<inputRect.bottom
+              <<" handled="<<consumed;
+        diagnosticEvent("TOUCH_WINDOW",detail.str());
+    }
+#endif
     if(consumed)return msg==0x0319?TRUE:0;
 
     switch (msg) {
@@ -464,7 +478,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int show) {
     ReleaseDC(window,fontDc);
     if(foregroundAllowed)ShowWindow(window, show);
 #ifdef UNDER_CE
-    if(foregroundAllowed)configureDeviceWindow(window);
+    if(foregroundAllowed){
+        SetWindowPos(window,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW);
+        SetForegroundWindow(window);
+    }
 #endif
     UpdateWindow(window);
     SetTimer(window, 1, 100, 0);

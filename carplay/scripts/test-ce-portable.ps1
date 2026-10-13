@@ -13,7 +13,7 @@ $taskFlags=@('/nologo','/c','/O2','/MT','/GS-','/EHsc','/Zc:wchar_t-','/DUNICODE
 Push-Location $taskOut
 try {
  $taskObjects=@()
- foreach($taskFile in @('tests/wince/portable_smoke.cpp','devices/mrn/portable.cpp','platform/common/identity_wolfssl.cpp','platform/common/crypto_wolfssl.cpp','platform/wince/platform.cpp','core/protocol.cpp','core/plist.cpp')){
+ foreach($taskFile in @('tests/wince/portable_smoke.cpp','tests/wince/portable_test_backend.cpp','platform/common/identity_wolfssl.cpp','platform/common/crypto_wolfssl.cpp','platform/wince/platform.cpp','core/protocol.cpp','core/plist.cpp')){
   $taskObj=([IO.Path]::GetFileNameWithoutExtension($taskFile))+'.obj';$taskObjects+=$taskObj
   & "$taskVc/ce/bin/x86_arm/cl.exe" @taskFlags "/Fo$taskObj" "$taskRoot/$taskFile"
   if($LASTEXITCODE -ne 0){throw "Compile failed: $taskFile"}

@@ -214,6 +214,75 @@ def common(m):
     return m
 
 class BridgeTests(unittest.TestCase):
+    def test_steering_track_signed_steps_and_oem_passthrough(self):
+        m=self.server()
+        self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x36,1),0)
+        self.ready(m)
+        for delta,count,vk in ((1,1,0xb0),(2,2,0xb0),(-1,1,0xb1),(-3,3,0xb1),
+                               (0,0,0),(32767,16,0xb0),(-32768,16,0xb1)):
+            m.messages.clear()
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x36,delta & 0xffffffff),1)
+            self.drain(m)
+            self.assertEqual([v[1:] for v in m.messages if v[0]==202],
+                             [(0x100,vk,0),(0x101,vk,0)]*count)
+        # Low 16 bits follow the OEM SXTH behavior even without sign extension.
+        m.messages.clear();m.call('MrnOnMessage',303,0x8000,0x36,0xffff);self.drain(m)
+        self.assertEqual([v[1:] for v in m.messages if v[0]==202],[(0x100,0xb1,0),(0x101,0xb1,0)])
+        m.call('MrnBridgeStart');self.tick(m);m.messages.clear()
+        self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x36,1),0)
+        self.drain(m);self.assertFalse(any(v[0]==202 for v in m.messages))
+
+    def test_unmapped_raw_inputs_are_traced_without_being_consumed(self):
+        m=self.server();self.ready(m)
+        for raw in (0x32,0x33,0x35,0x37,0x2b,0x49,0x99):
+            m.messages.clear()
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,raw,0xffffffff),0)
+            self.drain(m)
+            self.assertFalse(any(v[0]==202 for v in m.messages))
+            self.assertEqual((101,0x852b,raw,0xffffffff) in m.messages,not NO_LOGS)
+        m.messages.clear()
+        self.assertEqual(m.call('MrnOnMessage',101,0x8000,0x36,1),0)
+        self.assertFalse(m.messages)
+
+    def test_track_steps_stop_after_post_failure(self):
+        m=self.server();self.ready(m);m.messages.clear();m.postOk=False
+        self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x36,3),1)
+        m.postOk=True;self.drain(m)
+        self.assertFalse(any(v[0]==202 for v in m.messages))
+
+    def test_vehicle_audio_scroll_steps_in_carplay_and_factory(self):
+        # First five RAW_STEP messages from vehicle FILEOPS_0002/A_BRIDGE.log:
+        # 135655/+1, 147804/+1, 149935/+1, 151384/-1, 151930/-1, raw ID 52.
+        m=self.server()
+        for delta in (1,-1):
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x34,delta & 0xffffffff),0)
+        self.ready(m)
+        for delta in (1,1,1,-1,-1,0,2,-2):
+            m.messages.clear()
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x34,delta & 0xffffffff),1)
+            self.drain(m)
+            vk=0xb0 if delta>0 else 0xb1
+            self.assertEqual([v[1:] for v in m.messages if v[0]==202],
+                             [(0x100,vk,0),(0x101,vk,0)]*abs(delta))
+        m.call('MrnBridgeStart');self.tick(m);m.messages.clear()
+        for delta in (1,-1):
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,0x34,delta & 0xffffffff),0)
+        self.drain(m);self.assertFalse(any(v[0]==202 for v in m.messages))
+
+    def test_raw_mode_and_media_keys_only_in_carplay(self):
+        m=self.server()
+        for raw in (1,0x27,0x10,0x11,0x1e,0x1f):
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,raw,0),0)
+        self.ready(m)
+        for raw,vk in ((1,0x24),(0x27,0x24),(0x11,0xb0),(0x1e,0xb0),(0x10,0xb1),(0x1f,0xb1)):
+            m.messages.clear();self.assertEqual(m.call('MrnOnMessage',303,0x8000,raw,0),1);self.drain(m)
+            self.assertEqual([v[1:] for v in m.messages if v[0]==202],[(0x100,vk,0),(0x101,vk,0)])
+            for action in (1,2,3,4):
+                m.messages.clear();self.assertEqual(m.call('MrnOnMessage',303,0x8000,raw,action),1);self.drain(m)
+                self.assertFalse(any(v[0]==202 for v in m.messages))
+        for raw in (3,0x14,0x1c,0x1d,0x2b):
+            self.assertEqual(m.call('MrnOnMessage',303,0x8000,raw,0),0)
+
     def server(self):
         m=common(Machine(OUT/'WinXPlayBridge.dll'))
         m.callbacks['SendMessageTimeout']=lambda *_:int(getattr(m,'responsive',True))
@@ -282,7 +351,7 @@ class BridgeTests(unittest.TestCase):
         self.send(m,DOWN,(old<<16)|1,0)
         self.assertFalse(m.messages)
     def test_unresponsive_target_disables_input_without_disconnect_or_switch(self):
-        m=self.server();self.ready(m);m.messages.clear();m.responsive=False;self.tick(m)
+        m=self.server();self.ready(m);m.messages.clear();m.responsive=False;m.now+=2000;self.tick(m)
         self.assertIn((202,0x1f,0,0),m.messages)
         self.assertFalse(any(v[1]==0x851c for v in m.messages))
         m.messages.clear();self.assertEqual(m.call('MrnOnMessage',303,0x201,1,0),1)
@@ -291,6 +360,62 @@ class BridgeTests(unittest.TestCase):
         m=self.server();self.ready(m);m.messages.clear()
         m.call('MrnOnMessage',303,0x201,1,0);m.postOk=False;self.drain(m)
         self.assertIn((202,0x1f,0,0),m.messages)
+    def test_short_probe_misses_preserve_the_entire_click(self):
+        m=self.server();self.ready(m);m.messages.clear()
+        m.call('MrnOnMessage',303,0x201,1,123);self.drain(m)
+        m.responsive=False
+        for _ in range(4):m.now+=250;self.tick(m)
+        m.call('MrnOnMessage',303,0x202,0,123);self.drain(m)
+        m.responsive=True;self.tick(m)
+        self.assertEqual([v[1] for v in m.messages if v[0]==202],[0x201,0x202])
+    def test_sustained_timeout_recovers_without_cancel_storm_or_band(self):
+        m=self.server();old=self.ready(m);m.messages.clear()
+        m.responsive=False;m.now+=2000
+        for _ in range(4):self.tick(m)
+        self.assertEqual(m.messages.count((202,0x1f,0,0)),1)
+        m.responsive=True;self.tick(m);m.messages.clear()
+        self.send(m,DOWN,(old<<16)|1,0) # queued before the failure
+        self.assertFalse(any(v[0]==202 for v in m.messages))
+        for msg,wp in [(0x201,1),(0x202,0)]:m.call('MrnOnMessage',303,msg,wp,123)
+        self.drain(m)
+        self.assertEqual([v[1] for v in m.messages if v[0]==202],[0x201,0x202])
+        self.assertEqual(len(m.created),1)
+    def test_recovery_waits_for_held_touch_and_key_release(self):
+        m=self.server();self.ready(m);m.messages.clear()
+        m.call('MrnOnMessage',303,0x201,1,0);m.call('MrnOnMessage',303,0x100,13,1)
+        self.drain(m);m.responsive=False;m.now+=2000;self.tick(m);m.messages.clear()
+        m.responsive=True;self.tick(m)
+        m.call('MrnOnMessage',303,0x200,1,12);m.call('MrnOnMessage',303,0x202,0,12)
+        self.drain(m);self.tick(m)
+        self.assertFalse(any(v[0]==202 for v in m.messages))
+        m.call('MrnOnMessage',303,0x101,13,0xc0000001);self.drain(m);self.tick(m)
+        m.messages.clear()
+        for msg,wp in [(0x201,1),(0x202,0)]:m.call('MrnOnMessage',303,msg,wp,25)
+        self.drain(m)
+        self.assertEqual([v[1] for v in m.messages if v[0]==202],[0x201,0x202])
+    def test_expired_heartbeat_recovers_on_next_healthy_tick(self):
+        m=self.server();self.ready(m);m.messages.clear();m.now+=2100
+        m.call('MrnOnMessage',303,0x201,1,0);self.tick(m)
+        m.call('MrnOnMessage',303,0x202,0,0);self.drain(m);self.tick(m)
+        self.assertEqual(m.messages.count((202,0x1f,0,0)),1)
+        m.messages.clear()
+        for msg,wp in [(0x201,1),(0x202,0)]:m.call('MrnOnMessage',303,msg,wp,25)
+        self.drain(m)
+        self.assertEqual([v[1] for v in m.messages if v[0]==202],[0x201,0x202])
+    def test_recovery_preserves_pending_layer_handoff_and_requires_cancel_success(self):
+        m=self.server();activation=self.ready(m);m.messages.clear()
+        m.postOk=False;m.responsive=False;m.now+=2000;self.tick(m)
+        m.responsive=True;self.tick(m)
+        m.call('MrnOnMessage',303,0x201,1,0);m.call('MrnOnMessage',303,0x202,0,0)
+        self.drain(m)
+        self.assertFalse(any(v[0]==202 and v[1]==0x201 for v in m.messages))
+        m.postOk=True;self.tick(m)
+        m.call('MrnOnMessage',303,0x851b,activation,101)
+        self.assertIn(303,m.invisible)
+        m.messages.clear()
+        for msg,wp in [(0x201,1),(0x202,0)]:m.call('MrnOnMessage',303,msg,wp,25)
+        self.drain(m)
+        self.assertEqual([v[1] for v in m.messages if v[0]==202],[0x201,0x202])
     def test_start_timeout_does_not_kill_child_and_other_oem_messages_pass_through(self):
         m=self.server();m.responsive=False;self.tick(m);m.now+=8001;self.tick(m)
         self.assertTrue(any(v[1]==0x851c for v in m.messages))

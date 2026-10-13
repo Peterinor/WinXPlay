@@ -102,6 +102,7 @@ def run():
         peer=Peer(17000);peer.pair();results['pair_setup_and_verify']=True;peer.mfi();results['mfi_sap_signature_verified']=True
         info=plistlib.loads(peer.request('/info',method='GET'));assert info['displays'][0]['widthPixels']==width and info['displays'][0]['heightPixels']==height
         hid=info['hidDevices'][0]['hidDescriptor']
+        assert info['displays'][0]['maxFPS']==30,info['displays']
         assert hid.count(b'\x26'+struct.pack('<H',width)+b'\x09\x30')==2
         assert hid.count(b'\x26'+struct.pack('<H',height)+b'\x09\x31')==2
         session=peer.setup({'features':['mainBuffered']} if buffered else {})
@@ -173,6 +174,14 @@ def run():
         time.sleep(2);v.shutdown(socket.SHUT_WR);time.sleep(2)
         stats=plistlib.loads((BUILD/'synthetic-streaming.plist').read_bytes());results['receiver']=stats
         assert stats['video_frames']>=55,stats
+        metrics=stats['media_metrics']
+        assert stats['video_max_fps']==metrics['max_fps']==info['displays'][0]['maxFPS'],stats
+        backend=plistlib.loads((BUILD/'video-backend.plist').read_bytes())
+        assert backend['max_fps']==metrics['max_fps'],backend
+        assert metrics['n2']==metrics['n3']==metrics['submitted']==len(frames),metrics
+        assert metrics['config']==1 and metrics['pending_bytes']==0 and metrics['parse_errors']==0,metrics
+        assert metrics['n1']==metrics['n4_decode']==metrics['n4_display']=='unknown',metrics
+        assert metrics['rx_bytes']>fixture.stat().st_size,metrics
         assert (stats['video_width'],stats['video_height'])==(width,height),stats
         assert stats['audio_packets']==audio_count,stats
         assert stats.get('audio_played_bytes',0)>=300000,stats
