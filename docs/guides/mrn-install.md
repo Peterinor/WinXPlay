@@ -2,6 +2,8 @@
 
 适用当前 MRN F3.21 适配。阅读 [设备约束](../devices/mrn.md) 和 [兼容性](../compatibility.md)，不要把编译包当成已验证的完整车机功能。
 
+安装前先看[MRN 使用提示与技术取舍](mrn-usage-notes.md)。当前 MRN 默认关闭 CarPlay 音频输入、输出，声音使用原车蓝牙；USB 画面与触控保留，动画和滚动仍可能卡顿。
+
 ## 运行位置与入口
 
 固定内部目录为 `\NAND_USER\WinXPlay`，主程序 `WinXPlay.exe`。同一 USB 口先用于部署，再接手机；运行依赖应留在内部存储。原厂 HMI 通过 `WinXPlayBridge.dll` 提供 BAND/输入/显示交接；只复制主程序不会给原厂 HMI 自动增加桥接钩子。

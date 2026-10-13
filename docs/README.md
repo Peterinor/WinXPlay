@@ -11,6 +11,7 @@
 | 发布物与源码对应关系 | [发布](release.md) |
 | 下一步工作 | [路线图](roadmap.md) |
 | Windows 运行与操作 | [Windows](guides/windows.md) |
+| 508 MRN 使用取舍、USB 带宽与卡顿提示 | [MRN 使用提示](guides/mrn-usage-notes.md) |
 | MRN 部署、更新与恢复 | [MRN 安装](guides/mrn-install.md) |
 | 故障定位与日志 | [故障排查](guides/troubleshooting.md) |
 | MRN 接口约束和适配结论 | [MRN 设备说明](devices/mrn.md) |

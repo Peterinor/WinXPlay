@@ -2,6 +2,8 @@
 
 适用范围见 [MRN 设备说明](../mrn.md)。原厂接口结论来自 ENTAVMAIN、ENTSSIAUDIO、ENTSSIHFPAUDIO、ENTDICTAPHONEMAIN 及导航包装器的指令和注册配置核对。下文区分原厂契约、当前实现及实听范围，不以 API 成功替代出声或人声验收。
 
+当前 MRN 默认关闭 CarPlay 音频输入和输出，保留 USB 画面与触控，声音使用原车蓝牙；下述音频后端仅在显式重新开启时使用。面向使用者的原因及限制见[MRN 使用提示与技术取舍](../../guides/mrn-usage-notes.md)。
+
 ## 输出设备与音源是两层接口
 
 | 对象 | 已确认含义 |
@@ -83,5 +85,7 @@ SSI 驱动的启动条件是第六次 WODM_WRITE 才触发 Run；计数对象是
 `DeviceProfile.audio.output/input` 默认为 true，可通过 `carplay.plist` 的字符串 `CARPLAY_AUDIO_OUTPUT` / `CARPLAY_MICROPHONE` 独立覆盖。两项关闭时不声明音频、不打开音频设备；只关闭输出仍可声明单声道上行，是否与手机蓝牙路由共存需实车确认。开关不负责原车蓝牙连接。当前 MRN 发布默认关闭两路音频，保留视频和触控；平台默认仍为开启。运行配置若显式设为字符串 1，会覆盖设备默认值。修改配置后重新启动接收端和建立会话。
 
 AAC 主机适配器测试覆盖 ADTS 封装、COM 引用生命周期、解码线程、队列溢出、暂停及失败清理；原厂 ARM 检查只证明格式契约，自检及实车结果另行记录。`carplay/scripts/test-ce-aac.ps1` 是开发测试入口，不需要用户部署额外测试程序。
+
+后续实车日志确认 AAC 启动解码自检通过，并向手机声明普通 AAC；但同轮 212 条音频统计记录均为 PCM16，未观察到 AAC 音乐流。因此自检通过只证明该设备能解码自检素材，不能报告 AAC 音乐或性能改善已验收，也不能推定手机优先选择 AAC。
 
 输出后端选择位于 [MRN 装配](../../../carplay/devices/mrn/wince.cpp)，退避重开策略位于 [audio_recovery.cpp](../../../carplay/platform/wince/audio_recovery.cpp)。平台注册入口只委托设备选择，Generic 使用标准 wave，不启用 MRN TTS。[MRN 输出测试](../../../carplay/tests/wince/mrn_audio_test.cpp)、[PCM 测试](../../../tests/test_voice_pcm.py)及[有限播放检查](../../../tests/test_tts_pcm_finite.py)覆盖相应软件行为。上述回归不提供真实音源仲裁或声学测量；物理能力以[兼容性表](../../compatibility.md)为准。
